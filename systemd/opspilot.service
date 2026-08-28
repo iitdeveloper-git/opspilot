@@ -1,0 +1,16 @@
+[Unit]
+Description=OpsPilot Infrastructure Command Center Daemon
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/opspilot
+ExecStart=/opt/opspilot/.venv/bin/python -m opspilot.main
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/opspilot/.env
+
+[Install]
+WantedBy=multi-user.target

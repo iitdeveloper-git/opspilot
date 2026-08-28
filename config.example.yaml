@@ -1,0 +1,45 @@
+# OpsPilot Core Configuration
+server:
+  name: "ovh-vps-01"
+  environment: "production"
+  timezone: "UTC"
+
+monitoring:
+  interval_seconds: 60
+  thresholds:
+    disk_percent_warning: 80
+    disk_percent_critical: 90
+    ram_percent_critical: 92
+    cpu_percent_critical: 95
+  ssl_domains:
+    - "growixa.iitdeveloper.com"
+    - "uat.growixa.iitdeveloper.com"
+    - "iitdeveloper.com"
+  http_endpoints:
+    - name: "Growixa API Prod"
+      url: "https://growixa.iitdeveloper.com/api/health"
+      expected_status: 200
+    - name: "Growixa API UAT"
+      url: "https://uat.growixa.iitdeveloper.com/api/health"
+      expected_status: 200
+
+automation:
+  auto_prune_disk:
+    enabled: true
+    trigger_percent: 85
+    prune_builder: true
+    prune_dangling_images: true
+  backup:
+    enabled: true
+    schedule: "0 3 * * *"  # Daily at 3 AM
+    target_databases:
+      - "growixa"
+      - "growixa_uat"
+
+ai:
+  enabled: true
+  provider: "openai"  # openai | anthropic | gemini | ollama
+  model: "gpt-4o-mini"
+  enable_rca: true
+  enable_log_summary: true
+  enable_natural_language_ops: true
