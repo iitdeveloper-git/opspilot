@@ -31,3 +31,6 @@ backups/
 .DS_Store
 .vscode/
 .idea/
+
+# Local deploy secrets — never commit
+.deploy.env

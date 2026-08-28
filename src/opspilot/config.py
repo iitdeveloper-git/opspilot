@@ -36,7 +36,7 @@ class AutoPruneConfig(BaseModel):
 class AutomationConfig(BaseModel):
     auto_prune_disk: AutoPruneConfig = Field(default_factory=AutoPruneConfig)
     backup_schedule: str = "0 3 * * *"
-    target_databases: list[str] = Field(default_factory=lambda: ["growixa", "growixa_uat"])
+    target_databases: list[str] = Field(default_factory=lambda: ["primary_db", "analytics_db"])
 
 
 class AIConfig(BaseModel):
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     environment: str = "production"
     log_level: str = "INFO"
-    server_name: str = "ovh-vps-01"
+    server_name: str = "node-01"
     server_timezone: str = "UTC"
 
     # Auth mode: "production" (default, fail-closed) or "development" (allow all — unsafe).

@@ -1,5 +1,6 @@
 import pytest
-from opspilot.config import Settings, MonitoringConfig
+
+from opspilot.config import MonitoringConfig, Settings
 
 
 @pytest.fixture
@@ -10,5 +11,5 @@ def mock_settings():
         monitoring=MonitoringConfig(
             interval_seconds=10,
             ssl_domains=["example.com"],
-        )
+        ),
     )

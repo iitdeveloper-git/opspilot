@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/opspilot-banner.png" alt="OpsPilot Banner" width="100%">
+</p>
+
 # OpsPilot 🚀
 
 > **The Open-Source AI Infrastructure Copilot & Command Center**  
@@ -16,7 +20,7 @@
 
 - **🔭 OBSERVE**: Real-time CPU, RAM, Disk, Load Average, Docker container health, and SSL certificate expiration checks.
 - **🤖 UNDERSTAND (AI Copilot)**: Pluggable AI engine for error log summarization and natural language questions (`/ask why is the API slow?`). Supports OpenAI, Anthropic Claude, Google Gemini, and local Ollama models.
-- **⚡ ACT (ChatOps)**: Safe, interactive commands via Telegram (`/status`, `/ps`, `/logs`, `/restart`, `/ask`) with interactive confirmation buttons.
+- **⚡ ACT (ChatOps)**: Safe, interactive commands via Telegram (`/start`, `/help`, `/status`, `/ps`, `/logs`, `/restart`, `/ask`) with interactive confirmation buttons.
 - **🛡️ ZERO-SHELL SECURITY**: Strictly forbids arbitrary `shell=True` commands. All actions pass through **User ID Allowlist → Safe Deterministic Executor → Audit Trail**.
 - **🧹 AUTOMATION**: Self-healing loops with opt-in Docker cache pruning when disk space exceeds a configurable threshold.
 
@@ -103,9 +107,11 @@ IMAGE_TAG=v0.1.0 docker compose -f docker-compose.prod.yml up -d
 
 | Command | Action |
 |---|---|
+| `/start` | Displays the welcome screen and interactive menu. |
+| `/help` | Shows the full command reference and usage guide. |
 | `/status` | Live CPU, Memory, Disk free/used, and system load. |
 | `/ps` | Lists active Docker containers and their health checks. |
-| `/logs <container> [N]` | Tails the last *N* log lines in chat. |
+| `/logs <container> [N]` | Tails the last *N* log lines in chat (default: 40). |
 | `/restart <container>` | Prompts for confirmation and safely restarts the service. |
 | `/ask <query>` | Asks OpsPilot AI to diagnose problems using live telemetry. |
 
@@ -128,6 +134,7 @@ The following features are planned and in active development:
 
 - **Fail-closed auth**: An empty `TELEGRAM_ALLOWED_USER_IDS` denies all users in production mode.
 - **No shell injection**: All operations go through `SafeOperationExecutor`, which never executes arbitrary shell strings.
+- **Audit trail**: Local JSONL audit logging (`audit_logs/audit_trail.jsonl`) for every executed and blocked action.
 - **Docker socket trust boundary**: The Docker socket provides host-level access. See [SECURITY.md](SECURITY.md) for the full security model.
 
 ---

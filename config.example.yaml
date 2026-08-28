@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────
 
 server:
-  name: "ovh-vps-01"
+  name: "node-01"
   environment: "production"
   timezone: "UTC"
 
@@ -17,15 +17,15 @@ monitoring:
     ram_percent_critical: 92
     cpu_percent_critical: 95
   ssl_domains:
-    - "growixa.iitdeveloper.com"
-    - "uat.growixa.iitdeveloper.com"
-    - "iitdeveloper.com"
+    - "api.example.com"
+    - "app.example.com"
+    - "example.com"
   http_endpoints:
-    - name: "Growixa API Prod"
-      url: "https://growixa.iitdeveloper.com/api/health"
+    - name: "Primary API Health"
+      url: "https://api.example.com/health"
       expected_status: 200
-    - name: "Growixa API UAT"
-      url: "https://uat.growixa.iitdeveloper.com/api/health"
+    - name: "Web App Health"
+      url: "https://app.example.com/health"
       expected_status: 200
 
 automation:
@@ -41,8 +41,8 @@ automation:
   # Note: backup execution is on the roadmap; these values are stored but not yet acted on.
   backup_schedule: "0 3 * * *"   # Daily at 3 AM
   target_databases:
-    - "growixa"
-    - "growixa_uat"
+    - "app_production"
+    - "app_staging"
 
 ai:
   enabled: false   # Set to true and provide API key to enable AI features

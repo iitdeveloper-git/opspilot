@@ -44,8 +44,27 @@ def create_bot_app(settings: Settings):
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
-        text = f"👋 *Welcome to OpsPilot*\nInfrastructure Command Center for *{settings.server_name}*\n\nUse the menu below or type /status, /ps, /logs, /restart, /ask."
+        text = (
+            f"👋 *Welcome to OpsPilot*\n"
+            f"Infrastructure Command Center for *{settings.server_name}*\n\n"
+            "Use the menu below or type /help for available commands."
+        )
         await message.reply(text, reply_markup=get_main_menu_keyboard(), parse_mode="Markdown")
+
+    @dp.message(Command("help"))
+    async def cmd_help(message: Message):
+        text = (
+            f"🛠️ *OpsPilot Commands ({settings.server_name})*\n\n"
+            "• `/start` — Welcome message & interactive menu\n"
+            "• `/help` — Show this command reference\n"
+            "• `/status` — Live CPU, Memory, Disk, and load metrics\n"
+            "• `/ps` — Active Docker containers and health checks\n"
+            "• `/logs <container> [N]` — Tail last N lines of logs (default: 40)\n"
+            "• `/restart <container>` — Restart container with confirmation\n"
+            "• `/ask <question>` — AI Copilot telemetry diagnosis"
+        )
+        audit.record_action(message.from_user.id, "help", "bot", "SUCCESS")
+        await message.reply(text, parse_mode="Markdown")
 
     @dp.message(Command("status"))
     async def cmd_status(message: Message):
@@ -80,7 +99,7 @@ def create_bot_app(settings: Settings):
         args = message.text.split()[1:]
         if not args:
             await message.reply(
-                "Usage: `/logs <container_name> [lines]`\nExample: `/logs growixa-api-1 50`", parse_mode="Markdown"
+                "Usage: `/logs <container_name> [lines]`\nExample: `/logs api-server-1 50`", parse_mode="Markdown"
             )
             return
         container = args[0]
