@@ -113,6 +113,9 @@ IMAGE_TAG=v0.1.0 docker compose -f docker-compose.prod.yml up -d
 | `/ps` | Lists active Docker containers and their health checks. |
 | `/logs <container> [N]` | Tails the last *N* log lines in chat (default: 40). |
 | `/restart <container>` | Prompts for confirmation and safely restarts the service. |
+| `/ignore <container>` | Mutes/ignores health alerts for a specific container. |
+| `/unignore <container>` | Resumes health alerts for an ignored container. |
+| `/ignored` | Lists all containers currently muted from alerts. |
 | `/ask <query>` | Asks OpsPilot AI to diagnose problems using live telemetry. |
 
 ---

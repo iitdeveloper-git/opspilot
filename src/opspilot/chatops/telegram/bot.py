@@ -12,6 +12,7 @@ from opspilot.chatops.telegram.keyboards import get_confirmation_keyboard, get_m
 from opspilot.config import Settings
 from opspilot.core.audit import AuditLogger
 from opspilot.core.executor import SafeOperationExecutor
+from opspilot.core.ignored import IgnoredContainersManager
 from opspilot.core.security import AccessController
 from opspilot.monitor.docker import collect_docker_statuses
 from opspilot.monitor.ssl import check_domain_ssl
@@ -51,13 +52,14 @@ class AuthMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-def create_bot_app(settings: Settings):
+def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager | None = None):
     bot = Bot(token=settings.telegram_bot_token)
     dp = Dispatcher()
 
     access = AccessController(settings.allowed_users, auth_mode=settings.auth_mode)
     audit = AuditLogger()
     executor = SafeOperationExecutor()
+    ignored = ignored_manager or IgnoredContainersManager()
     ai_provider = AIProvider(
         provider=settings.ai.provider,
         model=settings.ai.model,
@@ -90,6 +92,9 @@ def create_bot_app(settings: Settings):
             "• `/ps` — Active Docker containers and health checks\n"
             "• `/logs <container> [N]` — Tail last N lines of logs (default: 40)\n"
             "• `/restart <container>` — Restart container with confirmation\n"
+            "• `/ignore <container>` — Ignore health alerts for a container\n"
+            "• `/unignore <container>` — Re-enable health alerts for a container\n"
+            "• `/ignored` — List all currently ignored containers\n"
             "• `/ask <question>` — AI Copilot telemetry diagnosis"
         )
         audit.record_action(message.from_user.id if message.from_user else 0, "help", "bot", "SUCCESS")
@@ -119,7 +124,8 @@ def create_bot_app(settings: Settings):
         for c in containers:
             status_icon = "🟢" if c.status == "running" else "🔴"
             health_str = f" [{c.health}]" if c.health != "none" else ""
-            lines.append(f"{status_icon} `{c.name}` ({c.status}{health_str})")
+            ignored_str = " 🔇 (Ignored)" if ignored.is_ignored(c.name) else ""
+            lines.append(f"{status_icon} `{c.name}` ({c.status}{health_str}){ignored_str}")
         audit.record_action(message.from_user.id if message.from_user else 0, "ps", "docker", "SUCCESS")
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
@@ -153,6 +159,93 @@ def create_bot_app(settings: Settings):
             parse_mode="Markdown",
         )
 
+    @dp.message(Command("ignore"))
+    async def cmd_ignore(message: Message, command: CommandObject):
+        args = command.args.split() if command.args else []
+        if not args:
+            await message.reply(
+                "Usage: `/ignore <container_name>`\nExample: `/ignore stalwart-mailserver`", parse_mode="Markdown"
+            )
+            return
+        container = args[0]
+        ignored.ignore(container)
+        audit.record_action(message.from_user.id if message.from_user else 0, "ignore", container, "SUCCESS")
+        await message.reply(
+            f"🔇 Container `{container}` will be **ignored** from automated health alerts.\n\n"
+            f"Use `/unignore {container}` to resume alerts.",
+            parse_mode="Markdown",
+        )
+
+    @dp.message(Command("unignore"))
+    async def cmd_unignore(message: Message, command: CommandObject):
+        args = command.args.split() if command.args else []
+        if not args:
+            await message.reply(
+                "Usage: `/unignore <container_name>`\nExample: `/unignore stalwart-mailserver`", parse_mode="Markdown"
+            )
+            return
+        container = args[0]
+        if ignored.unignore(container):
+            audit.record_action(message.from_user.id if message.from_user else 0, "unignore", container, "SUCCESS")
+            await message.reply(
+                f"🔔 Container `{container}` has been **unignored**. Automated health alerts resumed.",
+                parse_mode="Markdown",
+            )
+        else:
+            await message.reply(f"ℹ️ Container `{container}` was not in the ignored list.", parse_mode="Markdown")
+
+    @dp.message(Command("ignored"))
+    async def cmd_ignored(message: Message):
+        list_items = ignored.list_ignored()
+        if not list_items:
+            await message.reply("🔔 No containers are currently ignored. All containers are actively monitored.")
+            return
+        lines = ["🔇 *Ignored Containers from Health Alerts:*"]
+        for name in list_items:
+            lines.append(f"• `{name}` (use `/unignore {name}` to resume)")
+        await message.reply("\n".join(lines), parse_mode="Markdown")
+
+    @dp.callback_query(F.data.startswith("act:"))
+    async def callback_act(query: CallbackQuery):
+        if not query.data:
+            return
+        parts = query.data.split(":")
+        if len(parts) < 3:
+            return
+        _, action, target = parts[0], parts[1], parts[2]
+        user_id = query.from_user.id
+
+        if action == "logs":
+            logs = await executor.get_container_logs(target, tail=40)
+            audit.record_action(user_id, "alert_logs", target, "SUCCESS")
+            if len(logs) > 3800:
+                logs = logs[-3800:]
+            if query.message:
+                await query.message.reply(f"📋 *Logs for {target} (tail 40)*:\n```\n{logs}\n```", parse_mode="Markdown")
+            await query.answer()
+
+        elif action == "restart":
+            kb = get_confirmation_keyboard("restart", target)
+            if query.message:
+                await query.message.reply(
+                    f"⚠️ *Confirmation Required*\nAre you sure you want to restart `{target}` on *{settings.server_name}*?",
+                    reply_markup=kb,
+                    parse_mode="Markdown",
+                )
+            await query.answer()
+
+        elif action == "ignore":
+            ignored.ignore(target)
+            audit.record_action(user_id, "alert_ignore", target, "SUCCESS")
+            if query.message:
+                await query.message.reply(
+                    f"🔇 Container `{target}` has been **ignored** and saved to disk.\n"
+                    f"OpsPilot will no longer alert for `{target}`.\n\n"
+                    f"To re-enable alerts, type `/unignore {target}`.",
+                    parse_mode="Markdown",
+                )
+            await query.answer(f"Ignored {target}", show_alert=True)
+
     @dp.callback_query(F.data.startswith("confirm:"))
     async def callback_confirm(query: CallbackQuery):
         if not query.data or not query.message:
@@ -167,10 +260,96 @@ def create_bot_app(settings: Settings):
             audit.record_action(user_id, "restart", target, status)
             await query.message.edit_text(f"{'✅' if res['success'] else '❌'} {res['message']}", parse_mode="Markdown")
 
+        elif action == "clean":
+            await query.message.edit_text("🧹 Pruning Docker cache and dangling images...", parse_mode="Markdown")
+            res = await executor.prune_docker()
+            if res.get("success"):
+                await query.message.edit_text(
+                    f"✅ Docker cleanup complete! Reclaimed *{res.get('reclaimed_mb', 0)} MB*.",
+                    parse_mode="Markdown",
+                )
+            else:
+                await query.message.edit_text(
+                    f"❌ Cleanup failed: {res.get('error', 'unknown error')}",
+                    parse_mode="Markdown",
+                )
+
     @dp.callback_query(F.data.startswith("cancel:"))
     async def callback_cancel(query: CallbackQuery):
         if query.message:
             await query.message.edit_text("❌ Action cancelled by user.")
+
+    @dp.callback_query(F.data.startswith("cmd:"))
+    async def callback_menu(query: CallbackQuery):
+        if not query.data or not query.message:
+            return
+        cmd = query.data.split(":")[1]
+
+        if cmd == "status":
+            m = collect_system_metrics()
+            text = (
+                f"🟢 *Server Status: {settings.server_name}*\n\n"
+                f"*CPU:* {m.cpu_percent}% ({m.cpu_count} cores)\n"
+                f"*Memory:* {m.ram_percent}% ({m.ram_used_gb} / {m.ram_total_gb} GB)\n"
+                f"*Disk (/):* {m.disk_percent}% ({m.disk_used_gb} / {m.disk_total_gb} GB, {m.disk_free_gb} GB free)\n"
+                f"*Load Average:* {m.load_avg[0]}, {m.load_avg[1]}, {m.load_avg[2]}\n"
+                f"*Uptime:* {m.uptime_human}"
+            )
+            await query.message.reply(text, parse_mode="Markdown")
+            await query.answer()
+
+        elif cmd == "ps":
+            containers = collect_docker_statuses()
+            if not containers:
+                await query.message.reply("🐳 No active Docker containers found.")
+            else:
+                lines = [f"🐳 *Docker Containers ({len(containers)})*"]
+                for c in containers:
+                    status_icon = "🟢" if c.status == "running" else "🔴"
+                    health_str = f" [{c.health}]" if c.health != "none" else ""
+                    ignored_str = " 🔇 (Ignored)" if ignored.is_ignored(c.name) else ""
+                    lines.append(f"{status_icon} `{c.name}` ({c.status}{health_str}){ignored_str}")
+                await query.message.reply("\n".join(lines), parse_mode="Markdown")
+            await query.answer()
+
+        elif cmd == "disk":
+            m = collect_system_metrics()
+            text = (
+                f"💾 *Disk Breakdown ({settings.server_name})*\n\n"
+                f"• Total: *{m.disk_total_gb} GB*\n"
+                f"• Used: *{m.disk_used_gb} GB* ({m.disk_percent}%)\n"
+                f"• Free: *{m.disk_free_gb} GB*"
+            )
+            await query.message.reply(text, parse_mode="Markdown")
+            await query.answer()
+
+        elif cmd == "clean":
+            kb = get_confirmation_keyboard("clean", "docker_cache")
+            await query.message.reply(
+                f"⚠️ *Prune Docker Cache*\nAre you sure you want to clean dangling images and build cache on *{settings.server_name}*?",
+                reply_markup=kb,
+                parse_mode="Markdown",
+            )
+            await query.answer()
+
+        elif cmd == "ssl":
+            if not settings.monitoring.ssl_domains:
+                await query.message.reply("🔒 No SSL domains configured in config.yaml.")
+            else:
+                lines = ["🔒 *SSL Certificate Status:*"]
+                for d in settings.monitoring.ssl_domains:
+                    res = check_domain_ssl(d)
+                    status_icon = "🟢" if res.is_valid else "🔴"
+                    lines.append(f"{status_icon} `{d}`: {res.days_remaining} days left ({res.expires_at})")
+                await query.message.reply("\n".join(lines), parse_mode="Markdown")
+            await query.answer()
+
+        elif cmd == "ask":
+            await query.message.reply(
+                "🤖 *Ask OpsPilot AI*\n\nType `/ask <your question>` to diagnose issues or inspect live telemetry.\nExample: `/ask why is memory usage high?`",
+                parse_mode="Markdown",
+            )
+            await query.answer()
 
     @dp.message(Command("ask"))
     async def cmd_ask(message: Message, command: CommandObject):

@@ -12,6 +12,18 @@ def get_confirmation_keyboard(action: str, target: str) -> InlineKeyboardMarkup:
     )
 
 
+def get_container_alert_keyboard(container_name: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📋 Logs", callback_data=f"act:logs:{container_name}"),
+                InlineKeyboardButton(text="🔄 Restart", callback_data=f"act:restart:{container_name}"),
+                InlineKeyboardButton(text="🔇 Ignore", callback_data=f"act:ignore:{container_name}"),
+            ]
+        ]
+    )
+
+
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
