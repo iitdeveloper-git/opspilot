@@ -8,6 +8,9 @@ from opspilot.config import load_settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("opspilot.main")
 
+# Dummy placeholder IDs from example configs to ignore
+PLACEHOLDER_CHAT_IDS = {"-1001234567890", "123456789", "YOUR_CHAT_ID", ""}
+
 
 async def run_daemon(config_path: str | None = None):
     settings = load_settings(config_path)
@@ -16,11 +19,22 @@ async def run_daemon(config_path: str | None = None):
     bot, dp = None, None
 
     async def telegram_notifier(text: str):
-        if bot and settings.telegram_alert_chat_id:
-            try:
-                await bot.send_message(chat_id=settings.telegram_alert_chat_id, text=text, parse_mode="Markdown")
-            except Exception as e:
-                logger.error(f"Failed to send Telegram alert: {e}")
+        chat_id = settings.telegram_alert_chat_id.strip()
+        if not bot or not chat_id or chat_id in PLACEHOLDER_CHAT_IDS:
+            return
+
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+        except Exception as e:
+            err_str = str(e)
+            if "chat not found" in err_str.lower():
+                logger.warning(
+                    f"Telegram alert not delivered: Chat ID '{chat_id}' was not found. "
+                    "Set TELEGRAM_ALERT_CHAT_ID to your real Telegram user ID in .env, "
+                    "or add your bot as an admin to the alert group."
+                )
+            else:
+                logger.error(f"Failed to send Telegram alert to {chat_id}: {e}")
 
     scheduler = BackgroundScheduler(settings, notify_callback=telegram_notifier)
     scheduler_task = asyncio.create_task(scheduler.start())

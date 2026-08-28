@@ -29,5 +29,5 @@ def test_load_settings_from_example_yaml():
     assert settings.server_timezone == "UTC"
     assert settings.automation.auto_prune_disk.enabled is False
     assert settings.automation.auto_prune_disk.trigger_percent == 85
-    assert len(settings.monitoring.ssl_domains) > 0
-    assert len(settings.monitoring.http_endpoints) > 0
+    assert isinstance(settings.monitoring.ssl_domains, list)
+    assert isinstance(settings.monitoring.http_endpoints, list)

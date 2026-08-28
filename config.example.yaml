@@ -16,17 +16,20 @@ monitoring:
     disk_percent_critical: 90
     ram_percent_critical: 92
     cpu_percent_critical: 95
-  ssl_domains:
-    - "api.example.com"
-    - "app.example.com"
-    - "example.com"
-  http_endpoints:
-    - name: "Primary API Health"
-      url: "https://api.example.com/health"
-      expected_status: 200
-    - name: "Web App Health"
-      url: "https://app.example.com/health"
-      expected_status: 200
+  # Domains to monitor for SSL expiration (alerts when <= 14 days remain)
+  ssl_domains: []
+  # Example:
+  # ssl_domains:
+  #   - "yourdomain.com"
+  #   - "api.yourdomain.com"
+
+  # HTTP Endpoints to probe for uptime and latency
+  http_endpoints: []
+  # Example:
+  # http_endpoints:
+  #   - name: "Primary API Health"
+  #     url: "https://api.yourdomain.com/health"
+  #     expected_status: 200
 
 automation:
   auto_prune_disk:
