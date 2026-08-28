@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from opspilot.ai.copilot import OpsCopilot
@@ -124,8 +124,8 @@ def create_bot_app(settings: Settings):
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
     @dp.message(Command("logs"))
-    async def cmd_logs(message: Message):
-        args = message.text.split()[1:] if message.text else []
+    async def cmd_logs(message: Message, command: CommandObject):
+        args = command.args.split() if command.args else []
         if not args:
             await message.reply(
                 "Usage: `/logs <container_name> [lines]`\nExample: `/logs api-server-1 50`", parse_mode="Markdown"
@@ -140,8 +140,8 @@ def create_bot_app(settings: Settings):
         await message.reply(f"📋 *Logs for {container} (tail {tail})*:\n```\n{logs}\n```", parse_mode="Markdown")
 
     @dp.message(Command("restart"))
-    async def cmd_restart(message: Message):
-        args = message.text.split()[1:] if message.text else []
+    async def cmd_restart(message: Message, command: CommandObject):
+        args = command.args.split() if command.args else []
         if not args:
             await message.reply("Usage: `/restart <container_name>`", parse_mode="Markdown")
             return
@@ -173,13 +173,20 @@ def create_bot_app(settings: Settings):
             await query.message.edit_text("❌ Action cancelled by user.")
 
     @dp.message(Command("ask"))
-    async def cmd_ask(message: Message):
-        if not message.text:
-            return
-        query = message.text[5:].strip()
+    async def cmd_ask(message: Message, command: CommandObject):
+        query = command.args.strip() if command.args else ""
         if not query:
             await message.reply(
                 "Usage: `/ask <question about servers or containers>`\nExample: `/ask why is API response slow?`",
+                parse_mode="Markdown",
+            )
+            return
+
+        # Check if AI provider key is configured
+        if settings.ai.provider != "ollama" and (not settings.ai.api_key or settings.ai.api_key.startswith("sk-...")):
+            await message.reply(
+                "⚠️ *AI Copilot is not configured.*\n\n"
+                "Please set a valid `AI_API_KEY` in your `.env` file on the VPS, or use `AI_PROVIDER=ollama` for local private LLM.",
                 parse_mode="Markdown",
             )
             return
