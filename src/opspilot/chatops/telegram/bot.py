@@ -8,7 +8,11 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from opspilot.ai.copilot import OpsCopilot
 from opspilot.ai.provider import AIProvider
-from opspilot.chatops.telegram.keyboards import get_confirmation_keyboard, get_main_menu_keyboard
+from opspilot.chatops.telegram.keyboards import (
+    get_confirmation_keyboard,
+    get_ignore_duration_keyboard,
+    get_main_menu_keyboard,
+)
 from opspilot.config import Settings
 from opspilot.core.audit import AuditLogger
 from opspilot.core.executor import SafeOperationExecutor
@@ -92,9 +96,9 @@ def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager
             "• `/ps` — Active Docker containers and health checks\n"
             "• `/logs <container> [N]` — Tail last N lines of logs (default: 40)\n"
             "• `/restart <container>` — Restart container with confirmation\n"
-            "• `/ignore <container>` — Ignore health alerts for a container\n"
+            "• `/ignore <container> [1h|24h|7d|forever]` — Snooze/ignore health alerts\n"
             "• `/unignore <container>` — Re-enable health alerts for a container\n"
-            "• `/ignored` — List all currently ignored containers\n"
+            "• `/ignored` — List all currently muted/snoozed containers\n"
             "• `/ask <question>` — AI Copilot telemetry diagnosis"
         )
         audit.record_action(message.from_user.id if message.from_user else 0, "help", "bot", "SUCCESS")
@@ -124,7 +128,7 @@ def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager
         for c in containers:
             status_icon = "🟢" if c.status == "running" else "🔴"
             health_str = f" [{c.health}]" if c.health != "none" else ""
-            ignored_str = " 🔇 (Ignored)" if ignored.is_ignored(c.name) else ""
+            ignored_str = " 🔇 (Muted)" if ignored.is_ignored(c.name) else ""
             lines.append(f"{status_icon} `{c.name}` ({c.status}{health_str}){ignored_str}")
         audit.record_action(message.from_user.id if message.from_user else 0, "ps", "docker", "SUCCESS")
         await message.reply("\n".join(lines), parse_mode="Markdown")
@@ -164,15 +168,24 @@ def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager
         args = command.args.split() if command.args else []
         if not args:
             await message.reply(
-                "Usage: `/ignore <container_name>`\nExample: `/ignore stalwart-mailserver`", parse_mode="Markdown"
+                "Usage: `/ignore <container_name> [duration]`\n"
+                "Examples:\n"
+                "• `/ignore stalwart-mailserver 1h` (Snooze for 1 hour)\n"
+                "• `/ignore stalwart-mailserver 24h` (Snooze for 24 hours)\n"
+                "• `/ignore stalwart-mailserver 7d` (Snooze for 7 days)\n"
+                "• `/ignore stalwart-mailserver` (Mute indefinitely)",
+                parse_mode="Markdown",
             )
             return
         container = args[0]
-        ignored.ignore(container)
-        audit.record_action(message.from_user.id if message.from_user else 0, "ignore", container, "SUCCESS")
+        duration_str = args[1] if len(args) > 1 else None
+        _, desc = ignored.ignore(container, duration_str)
+        audit.record_action(
+            message.from_user.id if message.from_user else 0, "ignore", container, "SUCCESS", {"duration": desc}
+        )
         await message.reply(
-            f"🔇 Container `{container}` will be **ignored** from automated health alerts.\n\n"
-            f"Use `/unignore {container}` to resume alerts.",
+            f"🔇 Container `{container}` will be **ignored** from automated health alerts for *{desc}*.\n\n"
+            f"Use `/unignore {container}` to resume alerts early.",
             parse_mode="Markdown",
         )
 
@@ -196,13 +209,13 @@ def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager
 
     @dp.message(Command("ignored"))
     async def cmd_ignored(message: Message):
-        list_items = ignored.list_ignored()
-        if not list_items:
-            await message.reply("🔔 No containers are currently ignored. All containers are actively monitored.")
+        items = ignored.list_ignored_details()
+        if not items:
+            await message.reply("🔔 No containers are currently muted. All containers are actively monitored.")
             return
-        lines = ["🔇 *Ignored Containers from Health Alerts:*"]
-        for name in list_items:
-            lines.append(f"• `{name}` (use `/unignore {name}` to resume)")
+        lines = ["🔇 *Muted / Snoozed Containers from Health Alerts:*"]
+        for it in items:
+            lines.append(f"• `{it['name']}` — *{it['remaining']}* (use `/unignore {it['name']}` to resume)")
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
     @dp.callback_query(F.data.startswith("act:"))
@@ -235,16 +248,34 @@ def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager
             await query.answer()
 
         elif action == "ignore":
-            ignored.ignore(target)
-            audit.record_action(user_id, "alert_ignore", target, "SUCCESS")
+            kb = get_ignore_duration_keyboard(target)
             if query.message:
                 await query.message.reply(
-                    f"🔇 Container `{target}` has been **ignored** and saved to disk.\n"
-                    f"OpsPilot will no longer alert for `{target}`.\n\n"
-                    f"To re-enable alerts, type `/unignore {target}`.",
+                    f"⏱️ *Snooze / Mute Alerts for {target}*\nChoose how long to silence alerts:",
+                    reply_markup=kb,
                     parse_mode="Markdown",
                 )
-            await query.answer(f"Ignored {target}", show_alert=True)
+            await query.answer()
+
+    @dp.callback_query(F.data.startswith("snooze:"))
+    async def callback_snooze(query: CallbackQuery):
+        if not query.data or not query.message:
+            return
+        parts = query.data.split(":")
+        if len(parts) < 3:
+            return
+        _, target, dur_key = parts[0], parts[1], parts[2]
+        user_id = query.from_user.id
+
+        _, desc = ignored.ignore(target, dur_key)
+        audit.record_action(user_id, "alert_snooze", target, "SUCCESS", {"duration": desc})
+
+        await query.message.edit_text(
+            f"🔇 Container `{target}` is now **muted** for *{desc}*.\n\n"
+            f"To re-enable alerts early, type `/unignore {target}`.",
+            parse_mode="Markdown",
+        )
+        await query.answer(f"Muted {target} ({dur_key})", show_alert=True)
 
     @dp.callback_query(F.data.startswith("confirm:"))
     async def callback_confirm(query: CallbackQuery):
@@ -307,7 +338,7 @@ def create_bot_app(settings: Settings, ignored_manager: IgnoredContainersManager
                 for c in containers:
                     status_icon = "🟢" if c.status == "running" else "🔴"
                     health_str = f" [{c.health}]" if c.health != "none" else ""
-                    ignored_str = " 🔇 (Ignored)" if ignored.is_ignored(c.name) else ""
+                    ignored_str = " 🔇 (Muted)" if ignored.is_ignored(c.name) else ""
                     lines.append(f"{status_icon} `{c.name}` ({c.status}{health_str}){ignored_str}")
                 await query.message.reply("\n".join(lines), parse_mode="Markdown")
             await query.answer()

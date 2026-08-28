@@ -24,6 +24,24 @@ def get_container_alert_keyboard(container_name: str) -> InlineKeyboardMarkup:
     )
 
 
+def get_ignore_duration_keyboard(container_name: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⏳ 1 Hour", callback_data=f"snooze:{container_name}:1h"),
+                InlineKeyboardButton(text="⏳ 24 Hours", callback_data=f"snooze:{container_name}:24h"),
+            ],
+            [
+                InlineKeyboardButton(text="⏳ 7 Days", callback_data=f"snooze:{container_name}:7d"),
+                InlineKeyboardButton(text="♾️ Indefinitely", callback_data=f"snooze:{container_name}:forever"),
+            ],
+            [
+                InlineKeyboardButton(text="❌ Cancel", callback_data=f"cancel:ignore:{container_name}"),
+            ],
+        ]
+    )
+
+
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
