@@ -1,4 +1,4 @@
-name: OpsPilot Docker Release
+name: OpsPilot Build & Auto-Deploy
 
 on:
   push:
@@ -47,9 +47,47 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  notify-release:
-    name: Notify Release
+  deploy:
+    name: Auto-Deploy to VPS
     needs: [build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy via SSH & Docker Compose
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST || '149.56.101.2' }}
+          VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          echo "Connecting to VPS ${VPS_HOST}..."
+          ssh -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" bash -c "'
+            set -euo pipefail
+            mkdir -p /opt/opspilot
+
+            # Pull latest OpsPilot image from GHCR
+            sudo docker pull ghcr.io/${{ github.repository }}:${IMAGE_TAG} || true
+            sudo docker pull ghcr.io/${{ github.repository }}:latest || true
+
+            # If compose file exists, restart container with latest image
+            if [ -f /opt/opspilot/docker-compose.yml ]; then
+              cd /opt/opspilot
+              sudo docker compose up -d --remove-orphans
+            fi
+
+            # Clean dangling images
+            sudo docker image prune -f >/dev/null 2>&1 || true
+          '"
+
+  notify-success:
+    name: Notify Deployment Success
+    needs: [build-and-push, deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Send Telegram Release Notification
@@ -59,15 +97,15 @@ jobs:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
           app_name: "OpsPilot"
-          environment: "GitHub Packages / Release"
+          environment: "OVH VPS Production"
           status: "success"
           release_tag: ${{ github.ref_name }}
-          app_url: "https://github.com/${{ github.repository }}/pkgs/container/opspilot"
-          custom_message: "🚀 New OpsPilot Docker container image published to GHCR."
+          app_url: "https://github.com/${{ github.repository }}"
+          custom_message: "🚀 OpsPilot ${{ github.ref_name }} built, published to GHCR, and auto-deployed to VPS successfully."
 
   notify-failure:
-    name: Notify Release Failure
-    needs: [build-and-push]
+    name: Notify Deployment Failure
+    needs: [build-and-push, deploy]
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -78,8 +116,8 @@ jobs:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
           app_name: "OpsPilot"
-          environment: "GitHub Packages / Release"
+          environment: "OVH VPS Production"
           status: "failure"
           release_tag: ${{ github.ref_name }}
           app_url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          custom_message: "❌ OpsPilot Docker release build failed."
+          custom_message: "❌ OpsPilot auto-deploy pipeline failed during build or rollout."
