@@ -1,12 +1,14 @@
 import asyncio
 import logging
-from typing import Callable, Coroutine, Any
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+from opspilot.automation.auto_prune import execute_auto_prune
 from opspilot.config import Settings
-from opspilot.monitor.system import collect_system_metrics
+from opspilot.core.executor import SafeOperationExecutor
 from opspilot.monitor.docker import collect_docker_statuses
 from opspilot.monitor.ssl import check_domain_ssl
-from opspilot.core.executor import SafeOperationExecutor
-from opspilot.automation.auto_prune import execute_auto_prune
+from opspilot.monitor.system import collect_system_metrics
 
 logger = logging.getLogger("opspilot.scheduler")
 
@@ -33,19 +35,22 @@ class BackgroundScheduler:
 
     async def _run_health_loop(self):
         metrics = collect_system_metrics()
-        
+
         # 1. Check Disk Threshold
         if metrics.disk_percent >= self.settings.monitoring.thresholds.disk_percent_critical:
             msg = f"🚨 *CRITICAL DISK ALERT*\nServer: `{self.settings.server_name}`\nDisk Usage: *{metrics.disk_percent}%* ({metrics.disk_free_gb} GB free)"
             if self.notify_callback:
                 await self.notify_callback(msg)
-            
+
             # Auto-prune if enabled
             if self.settings.automation.auto_prune_disk.enabled:
-                res = await execute_auto_prune(self.executor, metrics.disk_percent, self.settings.automation.auto_prune_disk.trigger_percent)
-                if res.get("pruned"):
-                    if self.notify_callback:
-                        await self.notify_callback(f"🧹 *Auto-Prune Action*: Reclaimed {res.get('reclaimed_mb')} MB of Docker cache.")
+                res = await execute_auto_prune(
+                    self.executor, metrics.disk_percent, self.settings.automation.auto_prune_disk.trigger_percent
+                )
+                if res.get("pruned") and self.notify_callback:
+                    await self.notify_callback(
+                        f"🧹 *Auto-Prune Action*: Reclaimed {res.get('reclaimed_mb')} MB of Docker cache."
+                    )
 
         # 2. Check Docker Containers
         containers = collect_docker_statuses()

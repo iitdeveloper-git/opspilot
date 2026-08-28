@@ -1,19 +1,19 @@
 import logging
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
 
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
+
+from opspilot.ai.copilot import OpsCopilot
+from opspilot.ai.provider import AIProvider
+from opspilot.chatops.telegram.keyboards import get_confirmation_keyboard, get_main_menu_keyboard
 from opspilot.config import Settings
-from opspilot.core.security import AccessController
 from opspilot.core.audit import AuditLogger
 from opspilot.core.executor import SafeOperationExecutor
-from opspilot.monitor.system import collect_system_metrics
+from opspilot.core.security import AccessController
 from opspilot.monitor.docker import collect_docker_statuses
 from opspilot.monitor.ssl import check_domain_ssl
-from opspilot.chatops.telegram.keyboards import get_main_menu_keyboard, get_confirmation_keyboard
-from opspilot.ai.provider import AIProvider
-from opspilot.ai.copilot import OpsCopilot
-from opspilot.ai.rca import RootCauseAnalyzer
+from opspilot.monitor.system import collect_system_metrics
 
 logger = logging.getLogger("opspilot.telegram")
 
@@ -21,18 +21,17 @@ logger = logging.getLogger("opspilot.telegram")
 def create_bot_app(settings: Settings):
     bot = Bot(token=settings.telegram_bot_token)
     dp = Dispatcher()
-    
-    access = AccessController(settings.allowed_users)
+
+    access = AccessController(settings.allowed_users, auth_mode=settings.auth_mode)
     audit = AuditLogger()
     executor = SafeOperationExecutor()
     ai_provider = AIProvider(
         provider=settings.ai.provider,
         model=settings.ai.model,
         api_key=settings.ai.api_key,
-        base_url=settings.ai.base_url
+        base_url=settings.ai.base_url,
     )
     copilot = OpsCopilot(ai_provider)
-    rca = RootCauseAnalyzer(ai_provider)
 
     @dp.message(F.from_user.id)
     async def auth_middleware(message: Message, handler):
@@ -51,12 +50,14 @@ def create_bot_app(settings: Settings):
     @dp.message(Command("status"))
     async def cmd_status(message: Message):
         m = collect_system_metrics()
-        text = f"🟢 *Server Status: {settings.server_name}*\n\n" \
-               f"*CPU:* {m.cpu_percent}% ({m.cpu_count} cores)\n" \
-               f"*Memory:* {m.ram_percent}% ({m.ram_used_gb} / {m.ram_total_gb} GB)\n" \
-               f"*Disk (/):* {m.disk_percent}% ({m.disk_used_gb} / {m.disk_total_gb} GB, {m.disk_free_gb} GB free)\n" \
-               f"*Load Average:* {m.load_avg[0]}, {m.load_avg[1]}, {m.load_avg[2]}\n" \
-               f"*Uptime:* {m.uptime_human}"
+        text = (
+            f"🟢 *Server Status: {settings.server_name}*\n\n"
+            f"*CPU:* {m.cpu_percent}% ({m.cpu_count} cores)\n"
+            f"*Memory:* {m.ram_percent}% ({m.ram_used_gb} / {m.ram_total_gb} GB)\n"
+            f"*Disk (/):* {m.disk_percent}% ({m.disk_used_gb} / {m.disk_total_gb} GB, {m.disk_free_gb} GB free)\n"
+            f"*Load Average:* {m.load_avg[0]}, {m.load_avg[1]}, {m.load_avg[2]}\n"
+            f"*Uptime:* {m.uptime_human}"
+        )
         audit.record_action(message.from_user.id, "status", "system", "SUCCESS")
         await message.reply(text, parse_mode="Markdown")
 
@@ -78,7 +79,9 @@ def create_bot_app(settings: Settings):
     async def cmd_logs(message: Message):
         args = message.text.split()[1:]
         if not args:
-            await message.reply("Usage: `/logs <container_name> [lines]`\nExample: `/logs growixa-api-1 50`", parse_mode="Markdown")
+            await message.reply(
+                "Usage: `/logs <container_name> [lines]`\nExample: `/logs growixa-api-1 50`", parse_mode="Markdown"
+            )
             return
         container = args[0]
         tail = int(args[1]) if len(args) > 1 and args[1].isdigit() else 40
@@ -96,7 +99,11 @@ def create_bot_app(settings: Settings):
             return
         container = args[0]
         kb = get_confirmation_keyboard("restart", container)
-        await message.reply(f"⚠️ *Confirmation Required*\nAre you sure you want to restart container `{container}` on *{settings.server_name}*?", reply_markup=kb, parse_mode="Markdown")
+        await message.reply(
+            f"⚠️ *Confirmation Required*\nAre you sure you want to restart container `{container}` on *{settings.server_name}*?",
+            reply_markup=kb,
+            parse_mode="Markdown",
+        )
 
     @dp.callback_query(F.data.startswith("confirm:"))
     async def callback_confirm(query: CallbackQuery):
@@ -121,10 +128,15 @@ def create_bot_app(settings: Settings):
     async def cmd_ask(message: Message):
         query = message.text[5:].strip()
         if not query:
-            await message.reply("Usage: `/ask <question about servers or containers>`\nExample: `/ask why is API response slow?`", parse_mode="Markdown")
+            await message.reply(
+                "Usage: `/ask <question about servers or containers>`\nExample: `/ask why is API response slow?`",
+                parse_mode="Markdown",
+            )
             return
-        
-        status_msg = await message.reply("🤖 *OpsPilot AI is analyzing infrastructure context...*", parse_mode="Markdown")
+
+        status_msg = await message.reply(
+            "🤖 *OpsPilot AI is analyzing infrastructure context...*", parse_mode="Markdown"
+        )
         context = {
             "metrics": collect_system_metrics().model_dump(),
             "containers": [c.model_dump() for c in collect_docker_statuses()],

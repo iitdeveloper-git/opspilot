@@ -1,4 +1,4 @@
-name: OpsPilot Build & Auto-Deploy
+name: OpsPilot Build & Deploy
 
 on:
   push:
@@ -48,9 +48,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Auto-Deploy to VPS
+    name: Deploy to Production VPS
     needs: [build-and-push]
     runs-on: ubuntu-latest
+    # Requires a GitHub Environment named "production" with required reviewers / protection rules.
+    environment: production
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -58,32 +61,48 @@ jobs:
       - name: Setup SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # DEPLOY_SSH_KEY: private key for the deployment user (required secret)
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      - name: Deploy via SSH & Docker Compose
+      - name: Add VPS to known_hosts
+        run: |
+          # DEPLOY_SSH_KNOWN_HOSTS: output of `ssh-keyscan <host>` captured at setup time.
+          # Store as a repository/environment secret. Never disable host key verification.
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy via SSH & Docker Compose (Production)
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST || '149.56.101.2' }}
-          VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           IMAGE_TAG: ${{ github.ref_name }}
         run: |
-          echo "Connecting to VPS ${VPS_HOST}..."
-          ssh -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" bash -c "'
+          # Fail immediately if required secrets are not set
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ]; then
+            echo "::error::DEPLOY_HOST and DEPLOY_USER secrets must be configured in the 'production' environment."
+            exit 1
+          fi
+
+          echo "Deploying OpsPilot ${IMAGE_TAG} to ${DEPLOY_HOST}..."
+          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s << EOF
             set -euo pipefail
+
             mkdir -p /opt/opspilot
+            cd /opt/opspilot
 
-            # Pull latest OpsPilot image from GHCR
-            sudo docker pull ghcr.io/${{ github.repository }}:${IMAGE_TAG} || true
-            sudo docker pull ghcr.io/${{ github.repository }}:latest || true
+            # Pull the exact released image — fail hard if the pull fails
+            sudo docker pull ghcr.io/${{ github.repository }}:${IMAGE_TAG}
 
-            # If compose file exists, restart container with latest image
-            if [ -f /opt/opspilot/docker-compose.yml ]; then
-              cd /opt/opspilot
-              sudo docker compose up -d --remove-orphans
+            # Deploy using production Compose file (references GHCR image, not build: .)
+            if [ -f docker-compose.prod.yml ]; then
+              IMAGE_TAG=${IMAGE_TAG} sudo --preserve-env=IMAGE_TAG docker compose \
+                -f docker-compose.prod.yml up -d --remove-orphans
+            else
+              echo "docker-compose.prod.yml not found on host. Aborting."
+              exit 1
             fi
-
-            # Clean dangling images
-            sudo docker image prune -f >/dev/null 2>&1 || true
-          '"
+          EOF
 
   notify-success:
     name: Notify Deployment Success
@@ -101,7 +120,7 @@ jobs:
           status: "success"
           release_tag: ${{ github.ref_name }}
           app_url: "https://github.com/${{ github.repository }}"
-          custom_message: "🚀 OpsPilot ${{ github.ref_name }} built, published to GHCR, and auto-deployed to VPS successfully."
+          custom_message: "🚀 OpsPilot ${{ github.ref_name }} built, published to GHCR, and deployed to VPS successfully."
 
   notify-failure:
     name: Notify Deployment Failure
@@ -120,4 +139,4 @@ jobs:
           status: "failure"
           release_tag: ${{ github.ref_name }}
           app_url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          custom_message: "❌ OpsPilot auto-deploy pipeline failed during build or rollout."
+          custom_message: "❌ OpsPilot deploy pipeline failed during build or rollout."

@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def get_confirmation_keyboard(action: str, target: str) -> InlineKeyboardMarkup:
@@ -26,6 +26,6 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🔒 SSL Status", callback_data="cmd:ssl"),
                 InlineKeyboardButton(text="🤖 Ask Copilot", callback_data="cmd:ask"),
-            ]
+            ],
         ]
     )

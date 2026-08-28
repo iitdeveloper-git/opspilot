@@ -1,6 +1,5 @@
-import os
 from pathlib import Path
-from typing import Any
+
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,7 +27,7 @@ class MonitoringConfig(BaseModel):
 
 
 class AutoPruneConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False  # Opt-in: destructive automation must be explicitly enabled
     trigger_percent: int = 85
     prune_builder: bool = True
     prune_dangling_images: bool = True
@@ -57,6 +56,11 @@ class Settings(BaseSettings):
     environment: str = "production"
     log_level: str = "INFO"
     server_name: str = "ovh-vps-01"
+    server_timezone: str = "UTC"
+
+    # Auth mode: "production" (default, fail-closed) or "development" (allow all — unsafe).
+    # Set OPSPILOT_AUTH_MODE=development ONLY for local testing.
+    auth_mode: str = "production"
 
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: str = ""  # Comma separated integers
@@ -77,14 +81,19 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     settings = Settings()
     path = Path(config_path or "config.yaml")
     if path.exists():
-        with open(path, "r") as f:
+        with open(path) as f:
             yaml_data = yaml.safe_load(f) or {}
+            server_cfg = yaml_data.get("server", {})
+            if "name" in server_cfg:
+                settings.server_name = server_cfg["name"]
+            if "environment" in server_cfg:
+                settings.environment = server_cfg["environment"]
+            if "timezone" in server_cfg:
+                settings.server_timezone = server_cfg["timezone"]
             if "monitoring" in yaml_data:
                 settings.monitoring = MonitoringConfig(**yaml_data["monitoring"])
             if "automation" in yaml_data:
                 settings.automation = AutomationConfig(**yaml_data["automation"])
             if "ai" in yaml_data:
                 settings.ai = AIConfig(**yaml_data["ai"])
-            if "server" in yaml_data and "name" in yaml_data["server"]:
-                settings.server_name = yaml_data["server"]["name"]
     return settings

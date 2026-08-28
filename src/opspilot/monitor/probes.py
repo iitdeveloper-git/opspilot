@@ -1,5 +1,6 @@
-import httpx
 import logging
+
+import httpx
 from pydantic import BaseModel
 
 logger = logging.getLogger("opspilot.monitor.probes")

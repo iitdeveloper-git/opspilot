@@ -13,9 +13,9 @@ class OpsCopilot:
 
     async def ask(self, query: str, context: dict) -> str:
         user_prompt = f"""CURRENT INFRASTRUCTURE CONTEXT:
-- System Metrics: {context.get('metrics')}
-- Containers: {context.get('containers')}
-- SSL Certificates: {context.get('ssl')}
+- System Metrics: {context.get("metrics")}
+- Containers: {context.get("containers")}
+- SSL Certificates: {context.get("ssl")}
 
 USER QUESTION:
 {query}

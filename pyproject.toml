@@ -50,6 +50,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.4.0",
     "mypy>=1.9.0",
+    "types-PyYAML>=6.0.0",
 ]
 
 [project.scripts]
@@ -61,3 +62,24 @@ packages = ["src/opspilot"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# aiogram's CallbackQuery.message is typed as Message | InaccessibleMessage | None,
+# requiring exhaustive narrowing that makes handler code unreadable.
+# These are library type limitations, not bugs in our code.
+module = "opspilot.chatops.telegram.*"
+ignore_errors = true

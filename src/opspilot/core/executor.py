@@ -1,10 +1,9 @@
 import logging
-import asyncio
 from typing import Any
 
 try:
     import docker
-    from docker.errors import NotFound, APIError
+    from docker.errors import APIError, NotFound
 except ImportError:
     docker = None
     NotFound = Exception

@@ -23,7 +23,7 @@ class RootCauseAnalyzer:
     ) -> str:
         user_prompt = f"""SERVICE: {service_name}
 CONTAINER STATUS: {container_status}
-SYSTEM METRICS: {system_metrics or 'N/A'}
+SYSTEM METRICS: {system_metrics or "N/A"}
 
 RECENT LOGS:
 {logs[-3000:] if len(logs) > 3000 else logs}

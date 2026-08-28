@@ -1,13 +1,12 @@
 import asyncio
+
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from opspilot.config import load_settings
-from opspilot.monitor.system import collect_system_metrics
-from opspilot.monitor.docker import collect_docker_statuses
-from opspilot.monitor.ssl import check_domain_ssl
 from opspilot.main import run_daemon
+from opspilot.monitor.docker import collect_docker_statuses
+from opspilot.monitor.system import collect_system_metrics
 
 app = typer.Typer(help="OpsPilot: AI-powered infrastructure command center")
 console = Console()

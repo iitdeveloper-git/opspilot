@@ -1,6 +1,7 @@
 import time
-import psutil
 from datetime import timedelta
+
+import psutil
 from pydantic import BaseModel
 
 
@@ -21,7 +22,7 @@ class SystemMetrics(BaseModel):
 def collect_system_metrics() -> SystemMetrics:
     cpu_pct = psutil.cpu_percent(interval=0.5)
     cpu_cnt = psutil.cpu_count(logical=True) or 1
-    
+
     vm = psutil.virtual_memory()
     ram_total = round(vm.total / (1024**3), 2)
     ram_used = round(vm.used / (1024**3), 2)

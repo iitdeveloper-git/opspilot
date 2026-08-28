@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from opspilot.config import load_settings
-from opspilot.chatops.telegram.bot import create_bot_app
+
 from opspilot.automation.scheduler import BackgroundScheduler
+from opspilot.chatops.telegram.bot import create_bot_app
+from opspilot.config import load_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("opspilot.main")
@@ -13,6 +14,7 @@ async def run_daemon(config_path: str | None = None):
     logger.info(f"Starting OpsPilot Daemon for server: {settings.server_name}")
 
     bot, dp = None, None
+
     async def telegram_notifier(text: str):
         if bot and settings.telegram_alert_chat_id:
             try:
