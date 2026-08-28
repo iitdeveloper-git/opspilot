@@ -1,8 +1,10 @@
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from opspilot.ai.copilot import OpsCopilot
 from opspilot.ai.provider import AIProvider
@@ -16,6 +18,37 @@ from opspilot.monitor.ssl import check_domain_ssl
 from opspilot.monitor.system import collect_system_metrics
 
 logger = logging.getLogger("opspilot.telegram")
+
+
+class AuthMiddleware(BaseMiddleware):
+    """Aiogram 3 middleware to enforce allowlist authentication on all messages and callbacks."""
+
+    def __init__(self, access: AccessController, audit: AuditLogger):
+        super().__init__()
+        self.access = access
+        self.audit = audit
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        user = getattr(event, "from_user", None)
+        user_id = user.id if user else 0
+
+        if not self.access.is_authorized(user_id):
+            if isinstance(event, Message):
+                await event.reply(
+                    f"⛔ Unauthorized. Your Telegram User ID is `{user_id}`.",
+                    parse_mode="Markdown",
+                )
+            elif isinstance(event, CallbackQuery):
+                await event.answer("⛔ Unauthorized", show_alert=True)
+            self.audit.record_action(user_id, "unauthorized_access", "bot", "BLOCKED")
+            return None
+
+        return await handler(event, data)
 
 
 def create_bot_app(settings: Settings):
@@ -33,14 +66,10 @@ def create_bot_app(settings: Settings):
     )
     copilot = OpsCopilot(ai_provider)
 
-    @dp.message(F.from_user.id)
-    async def auth_middleware(message: Message, handler):
-        user_id = message.from_user.id
-        if not access.is_authorized(user_id):
-            await message.reply(f"⛔ Unauthorized. Your Telegram User ID is `{user_id}`.", parse_mode="Markdown")
-            audit.record_action(user_id, "unauthorized_access", "bot", "BLOCKED")
-            return
-        return await handler(message)
+    # Register authentication middleware for both messages and callback queries
+    auth_middleware = AuthMiddleware(access, audit)
+    dp.message.middleware(auth_middleware)
+    dp.callback_query.middleware(auth_middleware)
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
@@ -63,7 +92,7 @@ def create_bot_app(settings: Settings):
             "• `/restart <container>` — Restart container with confirmation\n"
             "• `/ask <question>` — AI Copilot telemetry diagnosis"
         )
-        audit.record_action(message.from_user.id, "help", "bot", "SUCCESS")
+        audit.record_action(message.from_user.id if message.from_user else 0, "help", "bot", "SUCCESS")
         await message.reply(text, parse_mode="Markdown")
 
     @dp.message(Command("status"))
@@ -77,7 +106,7 @@ def create_bot_app(settings: Settings):
             f"*Load Average:* {m.load_avg[0]}, {m.load_avg[1]}, {m.load_avg[2]}\n"
             f"*Uptime:* {m.uptime_human}"
         )
-        audit.record_action(message.from_user.id, "status", "system", "SUCCESS")
+        audit.record_action(message.from_user.id if message.from_user else 0, "status", "system", "SUCCESS")
         await message.reply(text, parse_mode="Markdown")
 
     @dp.message(Command("ps"))
@@ -91,12 +120,12 @@ def create_bot_app(settings: Settings):
             status_icon = "🟢" if c.status == "running" else "🔴"
             health_str = f" [{c.health}]" if c.health != "none" else ""
             lines.append(f"{status_icon} `{c.name}` ({c.status}{health_str})")
-        audit.record_action(message.from_user.id, "ps", "docker", "SUCCESS")
+        audit.record_action(message.from_user.id if message.from_user else 0, "ps", "docker", "SUCCESS")
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
     @dp.message(Command("logs"))
     async def cmd_logs(message: Message):
-        args = message.text.split()[1:]
+        args = message.text.split()[1:] if message.text else []
         if not args:
             await message.reply(
                 "Usage: `/logs <container_name> [lines]`\nExample: `/logs api-server-1 50`", parse_mode="Markdown"
@@ -105,14 +134,14 @@ def create_bot_app(settings: Settings):
         container = args[0]
         tail = int(args[1]) if len(args) > 1 and args[1].isdigit() else 40
         logs = await executor.get_container_logs(container, tail=tail)
-        audit.record_action(message.from_user.id, "logs", container, "SUCCESS")
+        audit.record_action(message.from_user.id if message.from_user else 0, "logs", container, "SUCCESS")
         if len(logs) > 3800:
             logs = logs[-3800:]
         await message.reply(f"📋 *Logs for {container} (tail {tail})*:\n```\n{logs}\n```", parse_mode="Markdown")
 
     @dp.message(Command("restart"))
     async def cmd_restart(message: Message):
-        args = message.text.split()[1:]
+        args = message.text.split()[1:] if message.text else []
         if not args:
             await message.reply("Usage: `/restart <container_name>`", parse_mode="Markdown")
             return
@@ -126,11 +155,10 @@ def create_bot_app(settings: Settings):
 
     @dp.callback_query(F.data.startswith("confirm:"))
     async def callback_confirm(query: CallbackQuery):
+        if not query.data or not query.message:
+            return
         _, action, target = query.data.split(":")
         user_id = query.from_user.id
-        if not access.is_authorized(user_id):
-            await query.answer("Unauthorized", show_alert=True)
-            return
 
         if action == "restart":
             await query.message.edit_text(f"🔄 Restarting `{target}`...", parse_mode="Markdown")
@@ -141,10 +169,13 @@ def create_bot_app(settings: Settings):
 
     @dp.callback_query(F.data.startswith("cancel:"))
     async def callback_cancel(query: CallbackQuery):
-        await query.message.edit_text("❌ Action cancelled by user.")
+        if query.message:
+            await query.message.edit_text("❌ Action cancelled by user.")
 
     @dp.message(Command("ask"))
     async def cmd_ask(message: Message):
+        if not message.text:
+            return
         query = message.text[5:].strip()
         if not query:
             await message.reply(
@@ -162,7 +193,7 @@ def create_bot_app(settings: Settings):
             "ssl": [check_domain_ssl(d).model_dump() for d in settings.monitoring.ssl_domains[:3]],
         }
         answer = await copilot.ask(query, context)
-        audit.record_action(message.from_user.id, "ai_ask", query, "SUCCESS")
+        audit.record_action(message.from_user.id if message.from_user else 0, "ai_ask", query, "SUCCESS")
         await status_msg.edit_text(f"🤖 *OpsPilot AI Analysis*:\n\n{answer}", parse_mode="Markdown")
 
     return bot, dp
