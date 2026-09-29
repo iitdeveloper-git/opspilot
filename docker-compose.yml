@@ -10,4 +10,5 @@ services:
       - ./config.yaml:/app/config.yaml:ro
       - ./audit_logs:/app/audit_logs
       - ./data:/app/data
+      - ./src:/app/src:ro
     network_mode: host
