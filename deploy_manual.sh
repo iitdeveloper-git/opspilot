@@ -89,6 +89,8 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '.mypy_cache' \
     --exclude '.venv' \
     --exclude '.deploy.env' \
+    --exclude '.env' \
+    --exclude 'config.yaml' \
     --exclude 'audit_logs/*' \
     --exclude 'data/*' \
     --exclude 'data' \
