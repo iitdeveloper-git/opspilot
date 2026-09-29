@@ -66,7 +66,7 @@ success "SSH connection verified"
 step "1/4  Prepare remote directory"
 ssh_run bash -s << 'REMOTE'
   set -euo pipefail
-  sudo mkdir -p /opt/opspilot/audit_logs
+  sudo mkdir -p /opt/opspilot/audit_logs /opt/opspilot/data
   sudo chown -R "$(id -u):$(id -g)" /opt/opspilot
 REMOTE
 success "Remote directory /opt/opspilot ready"
@@ -90,6 +90,8 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '.venv' \
     --exclude '.deploy.env' \
     --exclude 'audit_logs/*' \
+    --exclude 'data/*' \
+    --exclude 'data' \
     "${SCRIPT_DIR}/" "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_DIR}/"
 else
   info "rsync not found locally, streaming tar archive over SSH..."
@@ -101,6 +103,8 @@ else
       --exclude='.mypy_cache' \
       --exclude='.venv' \
       --exclude='.deploy.env' \
+      --exclude='data/*' \
+      --exclude='audit_logs/*' \
       -czf - -C "${SCRIPT_DIR}" . | ssh_run "tar -xzf - -C ${REMOTE_DIR}"
 fi
 success "Source code synced"

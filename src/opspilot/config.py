@@ -1,3 +1,4 @@
+"""OpsPilot 2.0 configuration — fully backward compatible."""
 from pathlib import Path
 
 import yaml
@@ -19,15 +20,28 @@ class HttpEndpoint(BaseModel):
     timeout_seconds: int = 5
 
 
+class RenewalItem(BaseModel):
+    """Static renewal entry configurable in config.yaml (seeded to DB on first run)."""
+    name: str
+    category: str = "other"   # vps | domain | ssl | software | other
+    due_date: str              # ISO8601: "2026-10-15"
+    amount: float | None = None
+    currency: str = "INR"
+    notes: str = ""
+    recurrence: str = "none"  # none | monthly | yearly
+    remind_days_before: int = 7
+
+
 class MonitoringConfig(BaseModel):
     interval_seconds: int = 60
     thresholds: ThresholdSettings = Field(default_factory=ThresholdSettings)
     ssl_domains: list[str] = Field(default_factory=list)
     http_endpoints: list[HttpEndpoint] = Field(default_factory=list)
+    initial_renewals: list[RenewalItem] = Field(default_factory=list)
 
 
 class AutoPruneConfig(BaseModel):
-    enabled: bool = False  # Opt-in: destructive automation must be explicitly enabled
+    enabled: bool = False
     trigger_percent: int = 85
     prune_builder: bool = True
     prune_dangling_images: bool = True
@@ -41,7 +55,7 @@ class AutomationConfig(BaseModel):
 
 class AIConfig(BaseModel):
     enabled: bool = False
-    provider: str = "openai"  # openai, anthropic, gemini, ollama
+    provider: str = "openai"
     model: str = "gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
@@ -57,13 +71,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     server_name: str = "node-01"
     server_timezone: str = "UTC"
-
-    # Auth mode: "production" (default, fail-closed) or "development" (allow all — unsafe).
-    # Set OPSPILOT_AUTH_MODE=development ONLY for local testing.
     auth_mode: str = "production"
+    db_path: str = "data/opspilot.db"
 
     telegram_bot_token: str = ""
-    telegram_allowed_user_ids: str = ""  # Comma separated integers
+    telegram_allowed_user_ids: str = ""
     telegram_alert_chat_id: str = ""
 
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
@@ -96,4 +108,6 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                 settings.automation = AutomationConfig(**yaml_data["automation"])
             if "ai" in yaml_data:
                 settings.ai = AIConfig(**yaml_data["ai"])
+            if "db_path" in yaml_data:
+                settings.db_path = yaml_data["db_path"]
     return settings

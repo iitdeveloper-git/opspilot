@@ -54,3 +54,22 @@ ai:
   enable_rca: true
   enable_log_summary: true
   enable_natural_language_ops: true
+
+# ─── DB ────────────────────────────────────────────────────────────────────────
+db_path: "data/opspilot.db"    # SQLite path relative to working directory
+
+# ─── Initial Renewals (seeded to DB on first run, idempotent thereafter) ──────
+# monitoring:
+#   initial_renewals:
+#     - name: "OVH VPS Node-01"
+#       category: "vps"
+#       due_date: "2026-11-01"
+#       amount: 1200
+#       currency: "INR"
+#       recurrence: "monthly"
+#       remind_days_before: 7
+#     - name: "sendrin.com Domain"
+#       category: "domain"
+#       due_date: "2027-03-15"
+#       amount: 1500
+#       recurrence: "yearly"
