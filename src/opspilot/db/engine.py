@@ -93,6 +93,16 @@ async def init_db() -> None:
                 expires_at     TEXT,
                 snoozed_at     TEXT    NOT NULL DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS alert_routes (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                label       TEXT    NOT NULL,
+                chat_id     TEXT    NOT NULL,
+                categories  TEXT    NOT NULL DEFAULT '["all"]',
+                events      TEXT    NOT NULL DEFAULT '[]',
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         # Migration: add snoozed_until to renewals if upgrading from v0.2
         try:

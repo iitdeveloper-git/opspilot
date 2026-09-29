@@ -92,9 +92,18 @@ class BackgroundScheduler:
     async def stop(self) -> None:
         self.running = False
 
-    async def _notify(self, text: str, keyboard=None) -> None:
+    async def _notify(
+        self,
+        text: str,
+        keyboard=None,
+        category: str = "general",
+        target: str = "",
+        event: str = "",
+    ) -> None:
         if self.channel:
-            await self.channel.send(text, keyboard)
+            await self.channel.send(
+                text, keyboard, category=category, target=target, event=event
+            )
         elif self._legacy_cb:
             await self._legacy_cb(text, keyboard)
 
@@ -104,7 +113,7 @@ class BackgroundScheduler:
         metrics = await asyncio.to_thread(collect_system_metrics)
 
         if metrics.disk_percent >= self.settings.monitoring.thresholds.disk_percent_critical:
-            await self._notify(disk_critical(self.settings.server_name, metrics.disk_percent, metrics.disk_free_gb))
+            await self._notify(disk_critical(self.settings.server_name, metrics.disk_percent, metrics.disk_free_gb), category="system", target="disk", event="disk_critical")
             if self.settings.automation.auto_prune_disk.enabled:
                 res = await execute_auto_prune(
                     self.executor,
@@ -134,11 +143,11 @@ class BackgroundScheduler:
                         count = inc["alert_count"] if inc else 1
                         if is_new or count % 5 == 0:
                             msg = container_alert(c.name, c.status, c.health, self.settings.server_name, count)
-                            await self._notify(msg, get_container_alert_keyboard(c.name))
+                            await self._notify(msg, get_container_alert_keyboard(c.name), category="containers", target=c.name, event="container_down")
             else:
                 resolved_id = await inc_db.resolve_incident("docker", c.name)
                 if resolved_id:
-                    await self._notify(container_recovered(c.name, self.settings.server_name))
+                    await self._notify(container_recovered(c.name, self.settings.server_name), category="containers", target=c.name, event="container_recovered")
 
         # SSL — route through incidents for dedupe (Fix #8 partial)
         for domain in self.settings.monitoring.ssl_domains:
@@ -152,7 +161,7 @@ class BackgroundScheduler:
                     detail=f"{ssl_res.days_remaining} days left",
                 )
                 if is_new and not inc_snoozed:
-                    await self._notify(ssl_expiring(domain, ssl_res.days_remaining, ssl_res.expires_at))
+                    await self._notify(ssl_expiring(domain, ssl_res.days_remaining, ssl_res.expires_at), category="ssl", target=domain, event="ssl_expiring")
             else:
                 await inc_db.resolve_incident("ssl", domain)
 
@@ -201,11 +210,11 @@ class BackgroundScheduler:
                     count = inc["alert_count"] if inc else 1
                     if is_new or count % 5 == 0:
                         msg = probe_down(ep["name"], ep["url"], result.status_code, result.error, count)
-                        await self._notify(msg, get_probe_alert_keyboard(inc_id))
+                        await self._notify(msg, get_probe_alert_keyboard(inc_id), category="probes", target=ep["name"], event="probe_failed")
             else:
                 resolved_id = await inc_db.resolve_incident("http_probe", ep["url"])
                 if resolved_id:
-                    await self._notify(probe_recovered(ep["name"], ep["url"], result.latency_ms))
+                    await self._notify(probe_recovered(ep["name"], ep["url"], result.latency_ms), category="probes", target=ep["name"], event="probe_recovered")
 
     # ─── Loop 3: Renewal Reminders (once per UTC day) ─────────────────────────
 
@@ -221,7 +230,7 @@ class BackgroundScheduler:
         for renewal in due:
             msg = renewal_reminder(renewal)
             kb = get_renewal_alert_keyboard(renewal["id"])
-            await self._notify(msg, kb)
+            await self._notify(msg, kb, category="billing", target=renewal.get("name", ""), event="renewal_due")
             await ren_db.mark_reminded(renewal["id"])
 
     # ─── Loop 4: Maintenance (hourly) ─────────────────────────────────────────

@@ -243,6 +243,15 @@ function setupEventListeners() {
   });
 
   // Settings Form
+  const openAddRouteBtn = document.getElementById('openAddRouteBtn');
+  if (openAddRouteBtn) {
+    openAddRouteBtn.addEventListener('click', openAddRouteModal);
+  }
+  const routeForm = document.getElementById('routeForm');
+  if (routeForm) {
+    routeForm.addEventListener('submit', handleRouteFormSubmit);
+  }
+
   document.getElementById('settingsForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const alertChatId = document.getElementById('settingAlertChatId').value.trim();
@@ -498,7 +507,7 @@ async function fetchProbes() {
 
     const list = document.getElementById('probesListContainer');
     if (probes.length === 0) {
-      list.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px;">No HTTP probes configured yet. Click "+ Add HTTP Probe" to start monitoring.</div>';
+      list.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px; grid-column: 1/-1;">No HTTP probes configured yet. Click "+ Add HTTP Probe" to start monitoring.</div>';
       return;
     }
 
@@ -512,23 +521,48 @@ async function fetchProbes() {
         ? `<span class="badge badge-running">HTTP ${p.status_code || 200}</span>`
         : `<span class="badge badge-exited">FAIL ${p.status_code ? 'HTTP ' + p.status_code : 'DOWN'}</span>`;
 
+      // 10 micro-status spark bars (BetterStack style)
+      const sparkBars = Array.from({ length: 10 }, (_, i) => {
+        let barClass = 'uptime-spark-bar';
+        if (!isHealthy && i >= 8) barClass += ' down';
+        else if (p.latency_ms > 400 && i >= 7) barClass += ' degraded';
+        return `<span class="${barClass}"></span>`;
+      }).join('');
+
       return `
         <div class="glass-panel probe-item">
-          <div class="probe-main">
-            <span class="status-dot ${isHealthy ? 'green' : 'red'}"></span>
-            <div class="probe-url-col">
-              <div class="probe-name">${escapeHtml(p.name)}</div>
-              <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" class="probe-url">${escapeHtml(p.url)}</a>
+          <div class="probe-header">
+            <div class="probe-title-group">
+              <span class="status-dot ${isHealthy ? 'green' : 'red'}"></span>
+              <div>
+                <div class="probe-name">${escapeHtml(p.name)}</div>
+                <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" class="probe-url-link">${escapeHtml(p.url)}</a>
+              </div>
+            </div>
+            <div>${statusBadge}</div>
+          </div>
+
+          <div class="probe-metrics-strip">
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+              <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Latency</span>
+              <span class="latency-pill ${latencyClass}">⚡ ${p.latency_ms || 0} ms</span>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;">
+              <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Status Pulse</span>
+              <div class="uptime-spark-bars">${sparkBars}</div>
             </div>
           </div>
 
-          <div class="probe-stats">
-            <span class="latency-pill ${latencyClass}">⚡ ${p.latency_ms || 0}ms</span>
-            ${statusBadge}
-            <button class="btn btn-secondary btn-sm" onclick="toggleProbe(${p.id}, ${p.enabled === 1 ? 'false' : 'true'})">
-              ${p.enabled === 1 ? 'Disable' : 'Enable'}
-            </button>
-            <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})">🗑</button>
+          <div class="probe-actions-footer">
+            <span style="font-size: 12px; color: var(--text-muted);">
+              ${p.enabled === 1 ? '<span style="color: var(--color-success);">● Active</span>' : '<span style="color: var(--text-muted);">○ Paused</span>'}
+            </span>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="toggleProbe(${p.id}, ${p.enabled === 1 ? 'false' : 'true'})">
+                ${p.enabled === 1 ? 'Pause' : 'Resume'}
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})">🗑</button>
+            </div>
           </div>
         </div>
       `;
@@ -585,41 +619,57 @@ async function fetchRenewals() {
     grid.innerHTML = renewals.map(r => {
       const isPaid = r.status === 'paid';
       const isCancelled = r.status === 'cancelled';
-      let dueBadge = `<span class="renewal-due-badge due-later">Due: ${escapeHtml(r.due_date)}</span>`;
+      let dueBadge = `<span class="renewal-due-badge normal">Due: ${escapeHtml(r.due_date)}</span>`;
 
       // Check if due soon (within 7 days)
       const dueDate = new Date(r.due_date);
       const diffDays = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
-      if (!isPaid && !isCancelled && diffDays <= 7) {
-        dueBadge = `<span class="renewal-due-badge due-soon">⚠️ Due in ${diffDays} day${diffDays === 1 ? '' : 's'}</span>`;
+      if (!isPaid && !isCancelled && diffDays < 0) {
+        dueBadge = `<span class="renewal-due-badge overdue">⚠️ Overdue (${Math.abs(diffDays)}d)</span>`;
+      } else if (!isPaid && !isCancelled && diffDays <= 7) {
+        dueBadge = `<span class="renewal-due-badge soon">⏳ Due in ${diffDays} day${diffDays === 1 ? '' : 's'}</span>`;
       } else if (isPaid) {
         dueBadge = `<span class="badge badge-running">✅ Paid</span>`;
       }
 
+      // Initials avatar
+      const initials = (r.name || 'CR')
+        .split(' ')
+        .map(w => w[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+
       return `
         <div class="glass-panel renewal-card" style="${isPaid ? 'opacity: 0.6;' : ''}">
           <div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-              <div>
-                <span class="badge badge-snoozed" style="font-size: 10px; text-transform: uppercase;">${escapeHtml(r.category || 'other')}</span>
-                <h3 style="font-size: 17px; margin-top: 6px;">${escapeHtml(r.name)}</h3>
+            <div class="renewal-header">
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <div class="renewal-avatar">${initials}</div>
+                <div>
+                  <h3 style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">${escapeHtml(r.name)}</h3>
+                  <span class="badge badge-snoozed" style="font-size: 10px; text-transform: uppercase;">${escapeHtml(r.category || 'client_billing')}</span>
+                </div>
               </div>
               ${dueBadge}
             </div>
             
-            <div style="margin: 14px 0;">
-              <div class="renewal-amount">₹${Number(r.amount || 0).toLocaleString('en-IN')} <span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">${r.recurrence}</span></div>
-              ${r.notes ? `<p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">${escapeHtml(r.notes)}</p>` : ''}
+            <div style="margin: 16px 0;">
+              <div class="renewal-amount-display">
+                ₹${Number(r.amount || 0).toLocaleString('en-IN')}
+                <span style="font-size: 13px; font-weight: normal; color: var(--text-muted); margin-left: 4px;">/ ${r.recurrence || 'monthly'}</span>
+              </div>
+              ${r.notes ? `<p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">${escapeHtml(r.notes)}</p>` : ''}
             </div>
           </div>
 
-          <div class="card-actions" style="justify-content: flex-end;">
+          <div class="card-actions" style="justify-content: flex-end; gap: 6px;">
             ${!isPaid ? `
-              <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Mark Paid</button>
-              <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze 7d</button>
+              <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Paid</button>
+              <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze</button>
               <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
             ` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="deleteRenewal(${r.id})">🗑 Delete</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})">🗑</button>
           </div>
         </div>
       `;
@@ -859,6 +909,7 @@ async function fetchSettings() {
     if (srv) {
       srv.value = `${data.server_name || 'node-01'} (${data.environment || 'production'})`;
     }
+    fetchAlertRoutes();
   } catch (err) {
     console.error('Error fetching settings:', err);
   }
@@ -885,4 +936,190 @@ function toggleTheme() {
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   showToast(`Switched to ${next === 'light' ? 'Light' : 'Dark'} theme`, 'info');
+}
+
+// ── Multi-Channel Alert Routing Matrix ───────────────────────────────────────
+
+window.alertRoutesCache = [];
+
+async function fetchAlertRoutes() {
+  try {
+    const res = await apiFetch('/api/alert-routes');
+    if (!res.ok) return;
+    const routes = await res.json();
+    window.alertRoutesCache = routes;
+
+    const container = document.getElementById('alertRoutesContainer');
+    if (!container) return;
+
+    if (routes.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; color: var(--text-muted); padding: 30px; grid-column: 1/-1;">
+          No custom alert routes configured yet. Click "+ Add Alert Route" to direct alerts to specific Telegram groups.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = routes.map(r => {
+      const cats = r.categories || [];
+      const evs = r.events || [];
+      const catBadges = cats.map(c => `<span class="route-tag">📂 ${escapeHtml(c)}</span>`).join('');
+      const evBadges = evs.length > 0 
+        ? evs.map(e => `<span class="route-tag" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">🎯 ${escapeHtml(e)}</span>`).join('')
+        : '<span class="route-tag" style="opacity: 0.7;">🎯 all events</span>';
+
+      return `
+        <div class="route-card">
+          <div>
+            <div class="route-header">
+              <span class="route-label">${escapeHtml(r.label)}</span>
+              <span class="badge ${r.enabled ? 'badge-running' : 'badge-snoozed'}">
+                ${r.enabled ? 'Active' : 'Paused'}
+              </span>
+            </div>
+            <div class="route-chatid">💬 ${escapeHtml(r.chat_id)}</div>
+            <div class="route-tags">
+              ${catBadges}
+              ${evBadges}
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+            <button class="btn btn-secondary btn-sm" onclick="testAlertRoute('${escapeHtml(r.chat_id)}')">
+              🧪 Test Alert
+            </button>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-secondary btn-sm" onclick="openEditRouteModal(${r.id})">✏️ Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteAlertRoute(${r.id})">🗑</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Error fetching alert routes:', err);
+  }
+}
+
+function openAddRouteModal() {
+  document.getElementById('routeModalTitle').textContent = 'Add Alert Route';
+  document.getElementById('routeIdInput').value = '';
+  document.getElementById('routeLabelInput').value = '';
+  document.getElementById('routeChatIdInput').value = '';
+  document.getElementById('routeEventsInput').value = '';
+  document.getElementById('routeEnabledInput').checked = true;
+
+  // Uncheck all categories except all
+  document.querySelectorAll('#routeForm input[type="checkbox"]').forEach(cb => {
+    if (cb.id === 'routeEnabledInput') return;
+    cb.checked = cb.value === 'all';
+  });
+
+  openModal('routeModal');
+}
+
+function openEditRouteModal(routeId) {
+  const route = (window.alertRoutesCache || []).find(r => r.id === routeId);
+  if (!route) return;
+
+  document.getElementById('routeModalTitle').textContent = 'Edit Alert Route';
+  document.getElementById('routeIdInput').value = route.id;
+  document.getElementById('routeLabelInput').value = route.label;
+  document.getElementById('routeChatIdInput').value = route.chat_id;
+  document.getElementById('routeEventsInput').value = (route.events || []).join(', ');
+  document.getElementById('routeEnabledInput').checked = Boolean(route.enabled);
+
+  const cats = route.categories || [];
+  document.querySelectorAll('#routeForm input[type="checkbox"]').forEach(cb => {
+    if (cb.id === 'routeEnabledInput') return;
+    cb.checked = cats.includes(cb.value);
+  });
+
+  openModal('routeModal');
+}
+
+async function handleRouteFormSubmit(e) {
+  e.preventDefault();
+  const routeId = document.getElementById('routeIdInput').value;
+  const label = document.getElementById('routeLabelInput').value.trim();
+  const chatId = document.getElementById('routeChatIdInput').value.trim();
+  const enabled = document.getElementById('routeEnabledInput').checked;
+  const eventsRaw = document.getElementById('routeEventsInput').value;
+  const events = eventsRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+  const categories = [];
+  document.querySelectorAll('#routeForm input[type="checkbox"]:checked').forEach(cb => {
+    if (cb.id !== 'routeEnabledInput') {
+      categories.push(cb.value);
+    }
+  });
+
+  if (categories.length === 0) {
+    categories.push('all');
+  }
+
+  const payload = {
+    label,
+    chat_id: chatId,
+    categories,
+    events,
+    enabled
+  };
+
+  try {
+    const isEdit = Boolean(routeId);
+    const url = isEdit ? `/api/alert-routes/${routeId}` : '/api/alert-routes';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const res = await apiFetch(url, {
+      method,
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(isEdit ? 'Alert route updated.' : 'Alert route created.', 'success');
+      closeModal('routeModal');
+      fetchAlertRoutes();
+    } else {
+      showToast(data.detail || 'Failed to save alert route.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error saving alert route.', 'error');
+  }
+}
+
+async function deleteAlertRoute(routeId) {
+  if (!confirm('Are you sure you want to delete this alert route?')) return;
+  try {
+    const res = await apiFetch(`/api/alert-routes/${routeId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast('Alert route deleted.', 'success');
+      fetchAlertRoutes();
+    } else {
+      showToast(data.detail || 'Failed to delete route.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error deleting route.', 'error');
+  }
+}
+
+async function testAlertRoute(chatId) {
+  showToast(`Sending test alert to ${chatId}...`, 'info');
+  try {
+    const res = await apiFetch('/api/alert-routes/test', {
+      method: 'POST',
+      body: JSON.stringify({ chat_id: chatId })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(data.message, 'success');
+    } else {
+      showToast(data.detail || 'Test alert delivery failed.', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to reach server for test alert.', 'error');
+  }
 }

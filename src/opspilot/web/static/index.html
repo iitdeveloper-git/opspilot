@@ -256,30 +256,48 @@
       <section id="tab-settings" class="tab-content">
         <div class="section-header">
           <div>
-            <h2 class="section-title">System & Alert Settings</h2>
-            <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">Configure real-time Telegram alert routing and server identity</p>
+            <h2 class="section-title">System & Alert Routing</h2>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">Manage Telegram notification channels, topic routing, and server identity</p>
           </div>
         </div>
 
-        <div class="glass-panel" style="max-width: 680px; padding: 28px;">
-          <form id="settingsForm">
-            <div class="form-group">
-              <label class="form-label" style="font-weight: 600;">Telegram Alert Chat ID</label>
-              <input type="text" id="settingAlertChatId" class="form-input" placeholder="-100xxxxxxxxx or @channel_name" required>
-              <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
-                Where OpsPilot sends infrastructure downtime alerts and client billing reminders. Updates take effect immediately without restarting.
-              </p>
+        <div class="settings-grid">
+          <!-- Fallback & Identity Card -->
+          <div class="glass-panel" style="padding: 24px;">
+            <h3 style="font-size: 16px; margin-bottom: 6px; font-weight: 600;">Default Fallback Channel</h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+              Used when an alert does not match any specialized routing rule below.
+            </p>
+            <form id="settingsForm">
+              <div class="form-group">
+                <label class="form-label">Default Telegram Chat ID</label>
+                <input type="text" id="settingAlertChatId" class="form-input" placeholder="-100xxxxxxxxx" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Node Identifier</label>
+                <input type="text" id="settingServerName" class="form-input" disabled style="opacity: 0.7; cursor: not-allowed;">
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm">💾 Save Default Channel</button>
+            </form>
+          </div>
+
+          <!-- Alert Routing Matrix Header & Card -->
+          <div class="glass-panel" style="padding: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+              <div>
+                <h3 style="font-size: 16px; margin-bottom: 6px; font-weight: 600;">Multi-Channel Alert Routing Matrix</h3>
+                <p style="font-size: 13px; color: var(--text-muted);">
+                  Route alerts to specific Telegram groups or channels based on category or target keywords (e.g. Foodio, Billing, Containers).
+                </p>
+              </div>
+              <button class="btn btn-primary btn-sm" id="openAddRouteBtn">+ Add Alert Route</button>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">Server Identity</label>
-              <input type="text" id="settingServerName" class="form-input" disabled style="opacity: 0.7; cursor: not-allowed;">
+            <!-- Routes Container -->
+            <div id="alertRoutesContainer" class="routes-grid">
+              <!-- Dynamically populated routes -->
             </div>
-
-            <div style="margin-top: 24px;">
-              <button type="submit" class="btn btn-primary">💾 Save Configuration</button>
-            </div>
-          </form>
+          </div>
         </div>
       </section>
 
@@ -484,6 +502,61 @@
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
           <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('editRenewalModal')">Cancel</button>
           <button type="submit" class="btn btn-primary btn-sm">Update Reminder</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ── MODAL: Add / Edit Alert Route ─────────────────────────────────── -->
+  <div id="routeModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="routeModalTitle" style="font-size: 18px;">Configure Alert Route</h3>
+        <button class="modal-close" onclick="closeModal('routeModal')">&times;</button>
+      </div>
+      <form id="routeForm">
+        <input type="hidden" id="routeIdInput">
+        
+        <div class="form-group">
+          <label class="form-label">Route Name / Description</label>
+          <input type="text" id="routeLabelInput" class="form-input" placeholder="e.g. Foodio Production Team or Billing Group" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Telegram Chat ID</label>
+          <input type="text" id="routeChatIdInput" class="form-input" placeholder="e.g. -1004407586766" required>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Group, Channel, or User ID. Make sure the bot is added as an admin/member.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Alert Categories (Select 1 or more)</label>
+          <div class="category-checkboxes">
+            <label class="checkbox-pill"><input type="checkbox" id="catAll" value="all"> <span>All Alerts</span></label>
+            <label class="checkbox-pill"><input type="checkbox" id="catContainers" value="containers"> <span>🚢 Containers</span></label>
+            <label class="checkbox-pill"><input type="checkbox" id="catProbes" value="probes"> <span>🌐 Probes</span></label>
+            <label class="checkbox-pill"><input type="checkbox" id="catBilling" value="billing"> <span>💳 Billing & Renewals</span></label>
+            <label class="checkbox-pill"><input type="checkbox" id="catSystem" value="system"> <span>🖥️ System & Prune</span></label>
+            <label class="checkbox-pill"><input type="checkbox" id="catSsl" value="ssl"> <span>🔒 SSL Expiry</span></label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Target / Event Keyword Filter (Optional)</label>
+          <input type="text" id="routeEventsInput" class="form-input" placeholder="e.g. foodio, caddy, probe_failed (comma-separated)">
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+            Filter by specific container, URL, or client name. Leave blank to receive all events in the selected categories.
+          </p>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
+          <input type="checkbox" id="routeEnabledInput" checked style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
+          <label for="routeEnabledInput" style="font-size: 14px; font-weight: 500; cursor: pointer;">Enable this alert route</label>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('routeModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="routeSubmitBtn">Save Route</button>
         </div>
       </form>
     </div>

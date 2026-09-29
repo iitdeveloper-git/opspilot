@@ -507,3 +507,133 @@ async def update_settings_endpoint(
         status="SUCCESS",
     )
     return {"success": True, "message": "Alert chat ID updated successfully.", "alert_chat_id": new_chat_id}
+
+
+# ── Alert Routing Rules ───────────────────────────────────────────────────────
+
+
+class AlertRouteCreateRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=100)
+    chat_id: str = Field(..., min_length=1, max_length=64)
+    categories: list[str] = Field(default_factory=lambda: ["all"])
+    events: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class AlertRouteUpdateRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=100)
+    chat_id: str = Field(..., min_length=1, max_length=64)
+    categories: list[str] = Field(default_factory=lambda: ["all"])
+    events: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class AlertRouteTestRequest(BaseModel):
+    chat_id: str = Field(..., min_length=1, max_length=64)
+
+
+@router.get("/alert-routes")
+async def list_alert_routes_endpoint(
+    session: Annotated[dict, Depends(get_current_session)],
+) -> list[dict[str, Any]]:
+    """List all configured alert routing rules."""
+    from opspilot.db import alert_routes as alert_routes_db
+
+    return await alert_routes_db.list_routes()
+
+
+@router.post("/alert-routes", status_code=201, dependencies=[Depends(verify_csrf)])
+async def create_alert_route_endpoint(
+    req: AlertRouteCreateRequest,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Create a new alert routing rule."""
+    from opspilot.db import alert_routes as alert_routes_db
+
+    route_id = await alert_routes_db.create_route(
+        label=req.label,
+        chat_id=req.chat_id,
+        categories=req.categories,
+        events=req.events,
+        enabled=req.enabled,
+    )
+    route = await alert_routes_db.get_route(route_id)
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="create_alert_route",
+        target=f"{req.label} ({req.chat_id})",
+        status="SUCCESS",
+    )
+    return {"success": True, "route": route}
+
+
+@router.put("/alert-routes/{route_id}", dependencies=[Depends(verify_csrf)])
+async def update_alert_route_endpoint(
+    route_id: int,
+    req: AlertRouteUpdateRequest,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Update an existing alert routing rule."""
+    from opspilot.db import alert_routes as alert_routes_db
+
+    success = await alert_routes_db.update_route(
+        route_id=route_id,
+        label=req.label,
+        chat_id=req.chat_id,
+        categories=req.categories,
+        events=req.events,
+        enabled=req.enabled,
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert route not found")
+    route = await alert_routes_db.get_route(route_id)
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="update_alert_route",
+        target=f"#{route_id} {req.label}",
+        status="SUCCESS",
+    )
+    return {"success": True, "route": route}
+
+
+@router.delete("/alert-routes/{route_id}", dependencies=[Depends(verify_csrf)])
+async def delete_alert_route_endpoint(
+    route_id: int,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Delete an alert routing rule."""
+    from opspilot.db import alert_routes as alert_routes_db
+
+    success = await alert_routes_db.delete_route(route_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert route not found")
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="delete_alert_route",
+        target=f"#{route_id}",
+        status="SUCCESS",
+    )
+    return {"success": True, "message": f"Alert route #{route_id} deleted."}
+
+
+@router.post("/alert-routes/test", dependencies=[Depends(verify_csrf)])
+async def test_alert_route_endpoint(
+    req: AlertRouteTestRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Send an immediate verification test message to the specified Telegram Chat ID."""
+    channel = getattr(request.app.state, "channel", None)
+    if not channel or not hasattr(channel, "send_to_chat"):
+        raise HTTPException(status_code=500, detail="Telegram channel is not initialized")
+    success = await channel.send_to_chat(
+        req.chat_id,
+        "🧪 <b>OpsPilot 2.0 Test Alert</b>\n"
+        "Your Telegram routing configuration is verified and receiving alerts! ✅",
+    )
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to deliver message to chat '{req.chat_id}'. Check chat ID and bot permissions.",
+        )
+    return {"success": True, "message": f"Test message delivered to chat '{req.chat_id}' successfully!"}

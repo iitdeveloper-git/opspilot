@@ -13,10 +13,23 @@ from typing import Any
 
 class NotificationChannel(ABC):
     @abstractmethod
-    async def send(self, text: str, keyboard: Any | None = None) -> None:
-        """Send a notification with optional interactive keyboard."""
+    async def send(
+        self,
+        text: str,
+        keyboard: Any | None = None,
+        category: str = "general",
+        target: str = "",
+        event: str = "",
+    ) -> None:
+        """Send a notification with optional interactive keyboard, category, and target/event."""
         ...
 
-    async def send_plain(self, text: str) -> None:
+    async def send_plain(
+        self,
+        text: str,
+        category: str = "general",
+        target: str = "",
+        event: str = "",
+    ) -> None:
         """Convenience method for keyboard-less messages."""
-        await self.send(text, None)
+        await self.send(text, None, category=category, target=target, event=event)

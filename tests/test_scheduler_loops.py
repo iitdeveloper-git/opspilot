@@ -22,7 +22,14 @@ class _CaptureChannel(NotificationChannel):
     def __init__(self):
         self.messages: list[tuple[str, object]] = []
 
-    async def send(self, text: str, keyboard=None) -> None:
+    async def send(
+        self,
+        text: str,
+        keyboard: object = None,
+        category: str = "general",
+        target: str = "",
+        event: str = "",
+    ) -> None:
         self.messages.append((text, keyboard))
 
 

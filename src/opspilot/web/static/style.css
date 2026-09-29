@@ -883,3 +883,325 @@ code, pre, .font-mono {
   font-size: 15px;
   padding: 12px 16px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Modern BetterStack / Linear Layout & Card Grids Overhaul
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Probes Modern Grid */
+.probe-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 16px;
+}
+
+.probe-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.probe-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.35);
+}
+
+.probe-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.probe-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.probe-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.probe-url-link {
+  font-size: 12px;
+  color: var(--accent-cyan);
+  text-decoration: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  display: block;
+  margin-top: 4px;
+  word-break: break-all;
+  opacity: 0.85;
+}
+
+.probe-url-link:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+
+.probe-metrics-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  margin: 12px 0;
+  border: 1px solid var(--border-subtle);
+}
+
+[data-theme="light"] .probe-metrics-strip {
+  background: #f1f5f9;
+}
+
+.uptime-spark-bars {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.uptime-spark-bar {
+  width: 5px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--color-success);
+  opacity: 0.85;
+  transition: opacity var(--transition-fast);
+}
+
+.uptime-spark-bar:hover {
+  opacity: 1;
+  transform: scaleY(1.15);
+}
+
+.uptime-spark-bar.degraded {
+  background: var(--color-warning);
+}
+
+.uptime-spark-bar.down {
+  background: var(--color-danger);
+}
+
+.probe-actions-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Renewals Modern Card Grid */
+.renewals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 18px;
+}
+
+.renewal-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  transition: all var(--transition-normal);
+}
+
+.renewal-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.35);
+}
+
+.renewal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.renewal-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.renewal-amount-display {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 12px 0 6px 0;
+}
+
+.renewal-due-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+}
+
+.renewal-due-badge.overdue {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.renewal-due-badge.soon {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.renewal-due-badge.normal {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Settings Multi-Channel Alert Routing */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 960px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.routes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.route-card {
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-card);
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+[data-theme="light"] .route-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.route-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.route-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.route-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.route-chatid {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 10px;
+}
+
+.route-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.route-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+[data-theme="light"] .route-tag {
+  background: rgba(79, 70, 229, 0.1);
+  color: var(--accent-primary);
+}
+
+.category-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.checkbox-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-card);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--transition-fast);
+}
+
+[data-theme="light"] .checkbox-pill {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.checkbox-pill:hover {
+  border-color: var(--accent-primary);
+}
+
+.checkbox-pill input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+}
