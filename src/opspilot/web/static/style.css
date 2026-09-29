@@ -824,3 +824,62 @@ code, pre, .font-mono {
   .metrics-grid { grid-template-columns: 1fr; }
   .containers-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Login Screen ──────────────────────────────────────────────────────────── */
+
+.login-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+  background-color: var(--bg-base);
+  background-image: 
+    radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.16) 0%, transparent 60%),
+    radial-gradient(circle at 80% 80%, rgba(6, 182, 212, 0.12) 0%, transparent 50%);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 42px 36px;
+  text-align: center;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-card);
+  animation: modalScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.login-logo {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  box-shadow: 0 8px 25px -4px rgba(99, 102, 241, 0.5);
+}
+
+.login-card .form-group {
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+.login-card .form-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.login-card .form-input {
+  font-size: 15px;
+  padding: 12px 16px;
+}
