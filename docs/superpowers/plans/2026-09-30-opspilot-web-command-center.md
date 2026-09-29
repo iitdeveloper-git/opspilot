@@ -4659,3 +4659,661 @@ Open `http://127.0.0.1:8088`, log in, walk every tab, add and remove a probe, ad
 git add src/opspilot/web/runner.py src/opspilot/main.py tests/test_web_runner.py
 git commit -m "feat(web): start the console as an isolated task inside the daemon" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+## Task 12: Documentation, spec amendments and the v0.4.0 release gate
+
+**Files:**
+- Create: `docs/web-console.md`
+- Modify: `README.md`, `CHANGELOG.md`, `SECURITY.md`, `pyproject.toml`, `docs/superpowers/specs/2026-09-30-opspilot-web-command-center.md`, `uv.lock`
+
+**Interfaces:**
+- Consumes: everything from Tasks 0–11.
+- Produces: user documentation and a releasable v0.4.0 candidate. No code changes.
+
+- [ ] **Step 1: Settle the reverse-proxy recipe (maintainer action)**
+
+On the reference VPS run: `docker inspect core_caddy --format '{{.HostConfig.NetworkMode}}'`.
+- `host` → use Option A below.
+- anything else (a bridge network) → use Option B.
+
+Record the result in the spec (Step 4).
+
+- [ ] **Step 2: Write `docs/web-console.md`**
+
+````markdown
+# Web console (optional)
+
+The web console is an optional dashboard for the same data the Telegram bot manages: containers, HTTP probes, renewals and incidents. It is **off by default**, listens on **loopback only** by default, and must be exposed through a TLS reverse proxy.
+
+## Enable it
+
+1. Install the extra (the official Docker image already includes it): `pip install 'opspilot[web]'`.
+2. Create a password hash and put it in `.env`:
+
+   ```bash
+   opspilot web hash-password
+   ```
+
+   ```env
+   OPSPILOT_WEB_ENABLED=true
+   OPSPILOT_ADMIN_PASSWORD_HASH=pbkdf2_sha256:600000:...:...
+   ```
+
+   A plaintext `OPSPILOT_ADMIN_PASSWORD` (at least 12 characters) also works but is discouraged.
+3. Restart OpsPilot. The log shows `Web console listening on http://127.0.0.1:8088`.
+
+If the credential is missing or weak, or the web extra is not installed, OpsPilot logs the reason, does **not** start the console, and keeps running the bot and monitors.
+
+## Put it behind a reverse proxy
+
+Never publish port 8088 directly: the console can restart containers.
+
+### Option A — Caddy runs on the host network
+
+```caddyfile
+ops.example.com {
+    reverse_proxy 127.0.0.1:8088
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+```
+
+Defaults (`OPSPILOT_WEB_HOST=127.0.0.1`, `OPSPILOT_WEB_TRUSTED_PROXIES=127.0.0.1`) work as they are.
+
+### Option B — Caddy runs in a Docker bridge network, OpsPilot on the host network
+
+A bridge container cannot reach the host's `127.0.0.1`. Bind the console to the Docker bridge gateway address instead and trust the bridge subnet:
+
+```env
+OPSPILOT_WEB_HOST=172.17.0.1                 # docker0 gateway; check with: ip -4 addr show docker0
+OPSPILOT_WEB_TRUSTED_PROXIES=172.17.0.0/16   # the subnet your Caddy container is on
+```
+
+```caddyfile
+ops.example.com {
+    reverse_proxy 172.17.0.1:8088
+}
+```
+
+Block the port from the internet as well (for example `ufw deny 8088`). The docker0 address is not reachable from outside the host, but a firewall rule costs nothing.
+
+Unix-socket support is not implemented yet.
+
+### Other proxies
+
+The proxy must preserve the original `Host` header (Caddy does by default; for nginx add `proxy_set_header Host $host;`) and send `X-Forwarded-For`. The console compares the browser's `Origin` with `Host` to block cross-site requests.
+
+## Security model
+
+- Single admin account; sessions live in memory (a restart logs everyone out). Idle timeout 8 hours, absolute limit 24 hours.
+- Cookie: `HttpOnly`, `Secure`, `SameSite=Strict`. Every state-changing request also needs a CSRF token and a same-host `Origin`.
+- Failed logins back off exponentially and lock an address out after 5 failures in 15 minutes. Behind a proxy the real address is read from `X-Forwarded-For`, but only when the connection comes from `OPSPILOT_WEB_TRUSTED_PROXIES`.
+- Restarts, snoozes, probe and renewal changes, log views and every login attempt are written to `audit_logs/audit_trail.jsonl` as `web-admin` with the client IP.
+- Strict Content-Security-Policy; the page loads no external scripts, fonts or styles.
+- Probes make outbound requests to any URL an admin enters, including internal addresses. Only give the password to people you would trust with shell access to the host network.
+- The Docker socket is still the trust boundary: an admin can restart any container.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Login works but you are sent back to the login page | The cookie is `Secure` and you are using plain `http://`. Use HTTPS through the proxy, or set `OPSPILOT_WEB_INSECURE_COOKIES=true` for local development only. |
+| Every action fails with "Cross-origin request rejected" | The proxy is not passing the original `Host` header. |
+| Everyone is locked out after one person mistypes | `OPSPILOT_WEB_TRUSTED_PROXIES` does not include the proxy, so all requests appear to come from the proxy address. |
+| "Web console will not start" in the log | Missing/weak credential or `opspilot[web]` not installed; the log line says which. |
+| "Address already in use" | Another process holds `OPSPILOT_WEB_PORT`; change the port. |
+````
+
+- [ ] **Step 3: README, SECURITY, CHANGELOG, version**
+
+`README.md`: add to the Features table a row `| **🖥️ Web console** | Optional dashboard for containers, probes, renewals and incidents. Off by default; see [docs/web-console.md](docs/web-console.md). |`, add a section before "Roadmap":
+
+```markdown
+## 🖥️ Web console (optional)
+
+Prefer a screen to a chat? Enable the built-in dashboard:
+
+```env
+OPSPILOT_WEB_ENABLED=true
+OPSPILOT_ADMIN_PASSWORD_HASH=...        # create with: opspilot web hash-password
+```
+
+It listens on `127.0.0.1:8088` only and is meant to sit behind a TLS reverse proxy. Setup, Caddy recipes and the security model: [docs/web-console.md](docs/web-console.md).
+```
+
+Update the Roadmap: tick "Optional web admin UI" as shipped in 0.4.0. Add the new env vars to the `.env` overview if the README lists them. Do **not** state memory or CPU figures.
+
+`SECURITY.md`: add a short "Web console" section that links to `docs/web-console.md#security-model` and repeats: off by default, loopback-only by default, reverse proxy required, probe requests can reach internal addresses.
+
+`CHANGELOG.md`: add above `[0.3.1]`:
+
+```markdown
+## [0.4.0] - 2026-09-30
+
+### Added
+- **Optional web console** (`opspilot[web]`), disabled by default: overview, containers (logs, restart, snooze), HTTP probes, renewals and incidents.
+- Security: server-side sessions, hardened cookie, CSRF tokens plus Origin check, login throttling with trusted-proxy aware client IPs, strict CSP, audit entries for every web action.
+- `opspilot web hash-password` to create `OPSPILOT_ADMIN_PASSWORD_HASH`.
+- Shared service layer used by both the Telegram bot and the web console.
+- In-memory snapshot cache so web requests never trigger Docker or network calls.
+
+### Changed
+- Removing a probe is now a soft delete: probes defined in `config.yaml` no longer reappear after a restart.
+- Docker calls run in worker threads, so a container restart no longer freezes the bot and scheduler.
+- `/ignore` and snooze buttons reject unknown durations instead of silently muting forever.
+- `/setchat` validates the chat ID.
+
+### Migration notes
+- Existing databases migrate automatically (`endpoints.deleted` column).
+- To use the console, follow [docs/web-console.md](docs/web-console.md). Nothing changes if you do not enable it.
+```
+
+Add link line `[0.4.0]: https://github.com/iitdeveloper-git/opspilot/compare/v0.3.1...v0.4.0`. In `pyproject.toml` set `version = "0.4.0"`.
+
+- [ ] **Step 4: Amend the spec to match what was built**
+
+In `docs/superpowers/specs/2026-09-30-opspilot-web-command-center.md`:
+1. §2.1: replace the three connectivity options with the two supported options (host-network Caddy; bridge gateway bind + trusted subnet) and mark Unix sockets "not supported yet". Record the maintainer's answer from Step 1.
+2. §2.2: change the hash description to `pbkdf2_sha256:<iterations>:<salt>:<hash>` (no `$`), and replace "uvicorn `forwarded_allow_ips` is set to the same value" with "uvicorn `proxy_headers` is disabled; `X-Forwarded-For` is handled and trust-checked by `opspilot.web.netutil`".
+3. §6: add the row `/api/containers/{name}/snooze | DELETE | Unmute a container`.
+4. Set the header status to `IMPLEMENTED in v0.4.0/v0.4.1` once the release ships.
+
+- [ ] **Step 5: Lock file, full gates**
+
+```bash
+uv lock
+uv run pytest -v --cov=src/opspilot --cov-report=term-missing
+uv run ruff check src/ tests/
+uv run ruff format --check src/ tests/
+uv run mypy src/
+```
+Expected: all green. Fix anything mypy reports in the new modules (add precise types; do not add blanket `# type: ignore`).
+
+- [ ] **Step 6: Manual QA checklist (browser, real Docker)**
+
+Run with a hashed password behind either a local proxy or with `OPSPILOT_WEB_INSECURE_COOKIES=true`, and check each item:
+- Login: wrong password → error message; 5 wrong passwords → lockout message; correct password after the window → works.
+- Overview gauges and container count update within ~10 s of a container stopping.
+- Containers: Logs modal scrolls, shows `<script>` text literally if a container prints it; Restart asks first; Snooze then Unmute.
+- Probes: add, see latency after one cycle, disable, remove; re-add the same name.
+- Renewals: add, mark paid (monthly one shows next due date), snooze, filter by status.
+- Incidents: open and resolved lists.
+- Keyboard only: Tab through nav, tables, dialogs; Escape closes dialogs; focus returns to the trigger.
+- 375 px wide viewport: no horizontal page scroll (tables scroll inside their wrapper).
+- Browser console: zero CSP violations.
+- Stop OpsPilot with Ctrl-C: exits promptly.
+
+- [ ] **Step 7: Required reviews before merge**
+
+Invoke the `architecture-review` skill (security-sensitive new subsystem) and the `ui-ux-review` skill (new screens) on the branch. Fix every Critical/High finding, re-run Step 5, note the rest in the PR description.
+
+- [ ] **Step 8: Commit (do not tag or push)**
+
+```bash
+git add docs README.md CHANGELOG.md SECURITY.md pyproject.toml uv.lock
+git commit -m "docs: web console guide, changelog and release prep for v0.4.0" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+Report to the maintainer that v0.4.0 is ready; tagging, pushing and deploying need their explicit OK.
+
+---
+
+## Task 13: v0.4.1 — live updates over WebSocket
+
+**Files:**
+- Create: `src/opspilot/web/routes/live.py`
+- Modify: `src/opspilot/web/app.py` (register the router), `src/opspilot/web/static/app.js`, `src/opspilot/web/static/styles.css`
+- Test: `tests/web/test_live.py`
+
+**Interfaces:**
+- Consumes: `auth.COOKIE_NAME`, `auth.get_deps`, `netutil.origin_matches_host`, `SessionStore.get/peek`, `overview.build_overview(deps)`, snapshot keys, `WebDeps.live_interval`.
+- Produces: `WS /ws/live` sending `{"type": "snapshot", "overview": <build_overview>, "containers": <snapshot>, "probes": <snapshot>}` every `live_interval` seconds (default 5).
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/web/test_live.py`:
+
+```python
+import pytest
+from starlette.websockets import WebSocketDisconnect
+from web_helpers import login
+
+from opspilot.core.snapshot import SYSTEM
+
+
+def _headers(env, origin=None):
+    token = env.client.cookies.get("opspilot_session")
+    headers = {"Origin": origin or env.origin}
+    if token:
+        headers["Cookie"] = f"opspilot_session={token}"
+    return headers
+
+
+def test_rejects_connections_without_a_session(env):
+    with pytest.raises(WebSocketDisconnect):
+        with env.client.websocket_connect("/ws/live", headers={"Origin": env.origin}):
+            pass
+
+
+def test_rejects_foreign_origin_even_with_a_valid_session(env):
+    login(env)
+    with pytest.raises(WebSocketDisconnect):
+        with env.client.websocket_connect("/ws/live", headers=_headers(env, "https://evil.example.net")):
+            pass
+
+
+def test_rejects_missing_origin(env):
+    login(env)
+    headers = _headers(env)
+    del headers["Origin"]
+    with pytest.raises(WebSocketDisconnect):
+        with env.client.websocket_connect("/ws/live", headers=headers):
+            pass
+
+
+def test_streams_snapshots(env):
+    env.snapshots.set(SYSTEM, {"cpu_percent": 7.0, "ram_percent": 1.0, "disk_percent": 2.0, "uptime_human": "1d"})
+    login(env)
+    with env.client.websocket_connect("/ws/live", headers=_headers(env)) as ws:
+        first = ws.receive_json()
+        assert first["type"] == "snapshot"
+        assert first["overview"]["system"]["data"]["cpu_percent"] == 7.0
+        assert {"containers", "probes"} <= set(first)
+        env.snapshots.set(SYSTEM, {"cpu_percent": 9.0, "ram_percent": 1.0, "disk_percent": 2.0, "uptime_human": "1d"})
+        second = ws.receive_json()
+        assert second["overview"]["system"]["data"]["cpu_percent"] == 9.0
+
+
+def test_closes_when_the_session_is_revoked(env):
+    login(env)
+    token = env.client.cookies.get("opspilot_session")
+    with env.client.websocket_connect("/ws/live", headers=_headers(env)) as ws:
+        ws.receive_json()
+        env.deps.sessions.revoke(token)
+        with pytest.raises(WebSocketDisconnect):
+            for _ in range(20):
+                ws.receive_json()
+
+
+def test_open_socket_does_not_keep_an_idle_session_alive(env):
+    login(env)
+    with env.client.websocket_connect("/ws/live", headers=_headers(env)) as ws:
+        ws.receive_json()
+        env.clock.advance(9 * 3600)  # past the 8 h idle timeout with no real activity
+        with pytest.raises(WebSocketDisconnect):
+            for _ in range(20):
+                ws.receive_json()
+```
+
+- [ ] **Step 2: Run and confirm failure**
+
+Run: `uv run pytest tests/web/test_live.py -v`
+Expected: FAIL (`/ws/live` is not routed; the first test may pass by accident — the others will not).
+
+- [ ] **Step 3: Implement the route**
+
+`src/opspilot/web/routes/live.py`:
+
+```python
+"""Authenticated WebSocket that pushes cached snapshots."""
+
+from __future__ import annotations
+
+import asyncio
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from opspilot.core.snapshot import CONTAINERS, PROBES
+from opspilot.web.auth import COOKIE_NAME
+from opspilot.web.netutil import origin_matches_host
+from opspilot.web.routes.overview import build_overview
+
+router = APIRouter()
+
+POLICY_VIOLATION = 1008
+
+
+@router.websocket("/ws/live")
+async def live(ws: WebSocket) -> None:
+    deps = ws.app.state.deps
+    token = ws.cookies.get(COOKIE_NAME)
+    same_origin = origin_matches_host(ws.headers.get("origin"), None, ws.headers.get("host"))
+    if not same_origin or deps.sessions.get(token) is None:
+        await ws.close(code=POLICY_VIOLATION)
+        return
+    await ws.accept()
+    try:
+        while True:
+            if deps.sessions.peek(token) is None:  # peek: an open socket must not extend the session
+                await ws.close(code=POLICY_VIOLATION)
+                return
+            await ws.send_json(
+                {
+                    "type": "snapshot",
+                    "overview": await build_overview(deps),
+                    "containers": deps.snapshots.snapshot(CONTAINERS),
+                    "probes": deps.snapshots.snapshot(PROBES),
+                }
+            )
+            await asyncio.sleep(deps.live_interval)
+    except WebSocketDisconnect:
+        return
+```
+
+Register it in `create_app`: import `live` in the `from opspilot.web.routes import ...` line and add `live.router` to the router tuple.
+
+- [ ] **Step 4: Use it in the frontend**
+
+In `app.js`:
+
+1. Add `live: false` to `state`.
+2. Add before `init`:
+
+```js
+  function connectLive() {
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const dot = $("#live-dot");
+    const socket = new WebSocket(`${scheme}://${location.host}/ws/live`);
+    socket.addEventListener("open", () => {
+      state.live = true;
+      dot.classList.remove("offline");
+    });
+    socket.addEventListener("message", (event) => {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (err) {
+        return;
+      }
+      if (message.type !== "snapshot") return;
+      if (state.tab === "overview") renderOverview(message.overview);
+      else if (state.tab === "containers" || state.tab === "probes") refreshActive();
+    });
+    socket.addEventListener("close", () => {
+      state.live = false;
+      dot.classList.add("offline");
+      // if the session ended the next API call redirects to /login; otherwise try again shortly
+      guarded(() => api("GET", "/api/auth/session")).then((session) => {
+        if (session) setTimeout(connectLive, 5000);
+      });
+    });
+  }
+```
+
+3. In `init`, replace `state.timer = setInterval(refreshActive, 10000);` with:
+
+```js
+    state.timer = setInterval(() => {
+      const pushed = state.live && ["overview", "containers", "probes"].includes(state.tab);
+      if (!pushed) refreshActive();
+    }, 10000);
+    connectLive();
+```
+
+In `styles.css` add: `.pulse.offline { background: var(--warn); animation: none; }`.
+
+- [ ] **Step 5: Run and commit**
+
+```bash
+uv run pytest -q && uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy src/
+```
+
+Manual check: open the dashboard, watch the pulse dot; stop OpsPilot's web task (or the network) and confirm the dot turns amber and the page keeps working via polling; log out in another tab and confirm this tab is redirected.
+
+```bash
+git add src/opspilot/web tests/web/test_live.py
+git commit -m "feat(web): authenticated WebSocket live updates" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+## Task 14: v0.4.1 — settings screen (alert chat ID) and release gate
+
+Scope is deliberately limited to the alert chat ID (spec §4, Phase 2). Thresholds, intervals and YAML-owned settings stay out.
+
+**Files:**
+- Create: `src/opspilot/web/routes/settings.py`
+- Modify: `src/opspilot/web/schemas.py`, `src/opspilot/web/app.py`, `src/opspilot/web/static/index.html`, `static/app.js`, `README.md`, `docs/web-console.md`, `CHANGELOG.md`, `pyproject.toml`, spec status
+- Test: `tests/web/test_api_settings.py`, `tests/web/test_static.py` (extend)
+
+**Interfaces:**
+- Consumes: `services.settings.set_alert_chat_id/get_alert_chat_id/InvalidChatId`, `WebDeps.channel`, `auth.require_session/require_csrf/audit_event/ApiError`.
+- Produces: `GET /api/settings` → `{"alert_chat_id": str, "server_name": str, "channel_available": bool}`; `POST /api/settings/alert-chat` body `{"chat_id": str}` → `{"ok": true, "chat_id": str, "applied_live": bool}`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/web/test_api_settings.py`:
+
+```python
+from web_helpers import audit_entries, authed_headers, login, run
+
+from opspilot.services.settings import get_alert_chat_id
+
+
+class FakeChannel:
+    def __init__(self):
+        self.chat_id = "-100000000"
+
+    def update_chat_id(self, chat_id: str) -> None:
+        self.chat_id = chat_id
+
+
+def test_settings_require_session(env):
+    assert env.client.get("/api/settings").status_code == 401
+
+
+def test_get_settings_never_exposes_secrets(env):
+    env.deps.settings.telegram_bot_token = "123456:SECRET-TOKEN-VALUE"
+    login(env)
+    r = env.client.get("/api/settings")
+    assert r.status_code == 200
+    assert "SECRET-TOKEN-VALUE" not in r.text
+    assert set(r.json()) == {"alert_chat_id", "server_name", "channel_available"}
+
+
+def test_set_alert_chat_persists_and_updates_the_live_channel(env):
+    env.deps.channel = FakeChannel()
+    headers = authed_headers(env)
+    r = env.client.post("/api/settings/alert-chat", json={"chat_id": " -1001234567890 "}, headers=headers)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "chat_id": "-1001234567890", "applied_live": True}
+    assert env.deps.channel.chat_id == "-1001234567890"
+    assert run(get_alert_chat_id("default")) == "-1001234567890"
+    assert env.client.get("/api/settings").json()["alert_chat_id"] == "-1001234567890"
+    entry = audit_entries(env)[-1]
+    assert entry["action"] == "setchat" and entry["user_id"] == "web-admin"
+
+
+def test_set_alert_chat_without_a_channel_still_persists(env):
+    headers = authed_headers(env)
+    r = env.client.post("/api/settings/alert-chat", json={"chat_id": "@ops_alerts"}, headers=headers)
+    assert r.status_code == 200 and r.json()["applied_live"] is False
+    assert env.client.get("/api/settings").json()["channel_available"] is False
+
+
+def test_invalid_chat_ids_are_rejected_and_nothing_changes(env):
+    env.deps.channel = FakeChannel()
+    headers = authed_headers(env)
+    for bad in ("", "abc", "12", "1234 5678", "x" * 65):
+        r = env.client.post("/api/settings/alert-chat", json={"chat_id": bad}, headers=headers)
+        assert r.status_code == 422, bad
+    assert env.deps.channel.chat_id == "-100000000"
+    assert run(get_alert_chat_id("default")) == "default"
+
+
+def test_set_alert_chat_requires_csrf(env):
+    login(env)
+    r = env.client.post("/api/settings/alert-chat", json={"chat_id": "-1001234567890"}, headers={"Origin": env.origin})
+    assert r.status_code == 403
+```
+
+Append to `tests/web/test_static.py`:
+
+```python
+def test_index_has_a_settings_tab_and_panel():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'data-tab="settings"' in html
+    assert 'id="tab-settings"' in html
+    assert 'id="settings-body"' in html
+```
+
+- [ ] **Step 2: Run and confirm failure**
+
+Run: `uv run pytest tests/web/test_api_settings.py tests/web/test_static.py -v`
+Expected: FAIL (routes and markup missing).
+
+- [ ] **Step 3: Implement the API**
+
+Append to `src/opspilot/web/schemas.py`:
+
+```python
+class AlertChatBody(BaseModel):
+    chat_id: str = Field(min_length=1, max_length=64)
+```
+
+`src/opspilot/web/routes/settings.py`:
+
+```python
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
+
+from opspilot.services.settings import InvalidChatId, get_alert_chat_id, set_alert_chat_id
+from opspilot.web.auth import ApiError, audit_event, get_deps, require_csrf, require_session
+from opspilot.web.schemas import AlertChatBody
+
+router = APIRouter(prefix="/api/settings")
+
+
+@router.get("")
+async def read_settings(request: Request, _: object = Depends(require_session)) -> dict[str, Any]:
+    deps = get_deps(request)
+    return {
+        "alert_chat_id": await get_alert_chat_id(deps.settings.telegram_alert_chat_id),
+        "server_name": deps.settings.server_name,
+        "channel_available": deps.channel is not None,
+    }
+
+
+@router.post("/alert-chat")
+async def update_alert_chat(body: AlertChatBody, request: Request, _: object = Depends(require_csrf)) -> dict[str, Any]:
+    deps = get_deps(request)
+    try:
+        chat_id = await set_alert_chat_id(body.chat_id, deps.channel)
+    except InvalidChatId as exc:
+        raise ApiError(422, "invalid_chat_id", str(exc)) from None
+    audit_event(request, "setchat", "alert_chat_id", "SUCCESS", {"chat_id": chat_id})
+    return {"ok": True, "chat_id": chat_id, "applied_live": deps.channel is not None}
+```
+
+Register `settings.router` in `create_app` (same pattern as the other routers).
+
+- [ ] **Step 4: Add the Settings tab**
+
+`index.html`: in `<nav class="tabs">` add `<button type="button" class="tab" data-tab="settings">Settings</button>`, and after the incidents section add:
+
+```html
+    <section id="tab-settings" class="panel" aria-labelledby="h-settings" hidden>
+      <h2 id="h-settings">Settings</h2>
+      <div id="settings-body">
+        <form id="settings-form" class="stack card">
+          <label for="alert-chat-id">Alert chat ID</label>
+          <input id="alert-chat-id" name="chat_id" maxlength="64" required>
+          <p class="muted" id="settings-note">Where OpsPilot sends alerts. A number such as -1001234567890, or @channel_name.</p>
+          <p class="form-error" id="settings-error" role="alert" hidden></p>
+          <div class="dialog-actions"><button type="submit" class="btn primary">Save</button></div>
+        </form>
+      </div>
+    </section>
+```
+
+`app.js`: add the loader and wiring:
+
+```js
+  async function loadSettings() {
+    const data = await api("GET", "/api/settings");
+    $("#alert-chat-id").value = data.alert_chat_id || "";
+    $("#settings-note").textContent = data.channel_available
+      ? "Where OpsPilot sends alerts. Changes apply immediately."
+      : "Telegram is not connected in this process; the value is saved and used after a restart.";
+  }
+```
+
+Add `settings: loadSettings` to `loaders`, `settings: "#settings-body"` to the `target` map in `refreshActive`, and in `init` (before `showTab("overview")`):
+
+```js
+    $("#settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorBox = $("#settings-error");
+      errorBox.hidden = true;
+      try {
+        const result = await api("POST", "/api/settings/alert-chat", { chat_id: $("#alert-chat-id").value });
+        toast(result.applied_live ? "Alert chat updated." : "Saved. It will apply after a restart.", "success");
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.hidden = false;
+      }
+    });
+```
+
+Note: `refreshActive(true)` calls `loading($(target))`, which would replace the form with skeletons. For the settings tab only, skip the skeleton: in `refreshActive`, change the condition to `if (showSkeleton === true && state.tab !== "settings") loading($(target));`, and do not auto-refresh it (add `state.tab !== "settings"` to the interval guard) so typing is never overwritten.
+
+- [ ] **Step 5: Docs, changelog, version, spec status**
+
+- `docs/web-console.md`: mention live updates (WebSocket, falls back to polling) and the Settings screen (alert chat ID only), and that the WebSocket needs the proxy to allow upgrades (Caddy does by default; nginx needs `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`). Add a troubleshooting row: pulse dot stays amber → the proxy blocks WebSocket upgrades.
+- `README.md`: mention live updates and settings in the web console section.
+- `CHANGELOG.md`: add `## [0.4.1] - <release date>` with Added: live updates over an authenticated WebSocket (session and `Origin` checked, closes on logout/expiry); Settings screen for the alert chat ID. Add the compare link.
+- `pyproject.toml`: `version = "0.4.1"`.
+- Spec header status → `IMPLEMENTED in v0.4.0/v0.4.1`.
+
+- [ ] **Step 6: Full gates, manual check, reviews, commit**
+
+```bash
+uv run pytest -v --cov=src/opspilot --cov-report=term-missing
+uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/ && uv run mypy src/
+```
+
+Manual: change the alert chat ID in the browser, confirm the next Telegram alert goes to the new chat and that `/setchat` in Telegram shows the same value; restart and confirm it persisted; confirm an invalid ID shows the inline error.
+
+Re-run the `ui-ux-review` skill on the Settings screen and WebSocket status indicator if the earlier review flagged anything there.
+
+```bash
+git add src docs README.md CHANGELOG.md pyproject.toml tests
+git commit -m "feat(web): settings screen for the alert chat ID (v0.4.1)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+Report to the maintainer that v0.4.1 is ready; tagging, pushing and deploying need their explicit OK.
+
+---
+
+## Deployment checklist (maintainer, after v0.4.x is tagged)
+
+1. On the VPS: `opspilot web hash-password` (or in a throwaway container) and add `OPSPILOT_WEB_ENABLED=true` plus `OPSPILOT_ADMIN_PASSWORD_HASH=...` to `/opt/opspilot/.env`.
+2. Apply the proxy recipe chosen in Task 12 (host-network Caddy, or bridge gateway bind plus trusted subnet); add the Caddy site block; reload Caddy.
+3. Firewall: confirm port 8088 is not reachable from the internet (`curl http://<public-ip>:8088` must fail).
+4. Deploy, then check `docker logs opspilot-agent` for `Web console listening on ...` and no `will not start` lines.
+5. Log in over HTTPS, run the Task 12 manual QA list against the real fleet, and trigger one deliberate failure (stop a disposable container) to see it appear in Incidents.
+6. Confirm `audit_logs/audit_trail.jsonl` contains `web-admin` entries with the correct client IP (proves the trusted-proxy setting is right).
+
+## Spec coverage
+
+| Spec section | Task(s) |
+|---|---|
+| §2.1 exposure (off by default, loopback, proxy) | 2, 11, 12 |
+| §2.2 authentication (validation, hashing, throttle, client IP) | 6, 7, 8, 11 |
+| §2.3 sessions | 7, 8 |
+| §2.4 CSRF, headers, validation | 8, 9 |
+| §2.5 failure isolation, optional extra, lazy import | 2, 11 |
+| §2.6 shared services, executor use, audit, XSS, SSRF note | 3, 9, 10, 12 |
+| §3 snapshot cache | 5, 9 |
+| §4 Phase 1 screens | 9, 10 |
+| §4 Phase 2 WebSocket, settings | 13, 14 |
+| §5 removal semantics | 4, 9 |
+| §6 API | 8, 9, 13, 14 |
+| §7 UI states and accessibility | 10, 12 |
+| §8 configuration | 2, 12 |
+| §9 tests and gates | every task; 12, 14 |
+| Findings outside the spec (hotfix, blocking executor, duration typo) | 0, 1, 3 |
