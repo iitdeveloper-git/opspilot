@@ -6,7 +6,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from opspilot.core.audit import AuditLogger
@@ -128,14 +128,15 @@ async def get_container_logs(
     tail: int = Query(default=50, ge=10, le=200),
 ) -> dict[str, Any]:
     """Retrieve tail logs for a Docker container safely via SafeOperationExecutor."""
-    res = await executor.get_container_logs(name, tail=tail)
+    logs = await executor.get_container_logs(name, tail=tail)
+    is_err = logs.startswith("Error fetching logs:")
     audit_logger.record_action(
         user_id="web-admin",
         action="view_logs",
         target=name,
-        status="SUCCESS" if res.get("success") else "FAILURE",
+        status="FAILURE" if is_err else "SUCCESS",
     )
-    return res
+    return {"name": name, "tail": tail, "logs": logs}
 
 
 @router.post("/containers/{name}/snooze", dependencies=[Depends(verify_csrf)])
@@ -204,7 +205,7 @@ async def list_probes(
     enriched = []
     for ep, res in zip(endpoints, results, strict=True):
         item = dict(ep)
-        if isinstance(res, Exception):
+        if isinstance(res, BaseException):
             item["is_healthy"] = False
             item["status_code"] = None
             item["latency_ms"] = 0
@@ -278,6 +279,21 @@ async def delete_probe(
 
 
 # ── Renewals & Billing ────────────────────────────────────────────────────────
+
+
+class RenewalUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    category: str = Field(default="other", max_length=50)
+    due_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    amount: float | None = None
+    currency: str = Field(default="INR", max_length=10)
+    notes: str = Field(default="", max_length=500)
+    recurrence: str = Field(default="none", max_length=20)
+    remind_days_before: int = Field(default=7, ge=1, le=90)
+
+
+class SettingsUpdateRequest(BaseModel):
+    alert_chat_id: str = Field(min_length=1, max_length=100)
 
 
 class RenewalCreateRequest(BaseModel):
@@ -418,3 +434,76 @@ async def resolve_incident_endpoint(
         status="SUCCESS",
     )
     return {"success": True, "message": f"Incident #{incident_id} marked as resolved."}
+
+
+@router.put("/renewals/{renewal_id}", dependencies=[Depends(verify_csrf)])
+async def update_renewal_endpoint(
+    renewal_id: int,
+    req: RenewalUpdateRequest,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Update an existing client billing or renewal reminder."""
+    existing = await ren_db.get_renewal(renewal_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Renewal #{renewal_id} not found.")
+
+    await ren_db.update_renewal(
+        renewal_id=renewal_id,
+        name=req.name.strip(),
+        category=req.category.strip(),
+        due_date=req.due_date.strip(),
+        amount=req.amount,
+        currency=req.currency.strip().upper(),
+        notes=req.notes.strip(),
+        recurrence=req.recurrence.strip(),
+        remind_days_before=req.remind_days_before,
+    )
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="update_renewal",
+        target=f"#{renewal_id} {req.name}",
+        status="SUCCESS",
+    )
+    return {"success": True, "message": f"Renewal #{renewal_id} updated."}
+
+
+@router.get("/settings")
+async def get_settings_endpoint(
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Get runtime server settings."""
+    from opspilot.db.store import get_setting
+
+    settings = request.app.state.settings
+    current_chat_id = await get_setting("alert_chat_id", settings.telegram_alert_chat_id)
+    return {
+        "alert_chat_id": current_chat_id,
+        "server_name": settings.server_name,
+        "environment": settings.environment,
+    }
+
+
+@router.post("/settings", dependencies=[Depends(verify_csrf)])
+async def update_settings_endpoint(
+    req: SettingsUpdateRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Update runtime settings (e.g. alert chat ID) immediately without restart."""
+    from opspilot.db.store import set_setting
+
+    new_chat_id = req.alert_chat_id.strip()
+    await set_setting("alert_chat_id", new_chat_id)
+
+    channel = getattr(request.app.state, "channel", None)
+    if channel and hasattr(channel, "update_chat_id"):
+        channel.update_chat_id(new_chat_id)
+
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="update_alert_chat_id",
+        target=new_chat_id,
+        status="SUCCESS",
+    )
+    return {"success": True, "message": "Alert chat ID updated successfully.", "alert_chat_id": new_chat_id}

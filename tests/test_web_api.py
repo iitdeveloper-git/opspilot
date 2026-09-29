@@ -139,3 +139,64 @@ def test_incidents_endpoint(auth_client):
     res = auth_client.get("/api/incidents")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
+
+
+def test_renewal_edit_endpoint(auth_client):
+    """PUT /api/renewals/{id} updates renewal fields in database."""
+    # 1. Create a renewal
+    ren_payload = {
+        "name": "Initial Name",
+        "category": "domain",
+        "due_date": "2026-12-01",
+        "amount": 1000,
+        "currency": "INR",
+        "recurrence": "none",
+        "notes": "Original note",
+        "remind_days_before": 7,
+    }
+    create_res = auth_client.post("/api/renewals", json=ren_payload)
+    assert create_res.status_code == 200
+    ren_id = create_res.json()["id"]
+
+    # 2. Update the renewal via PUT
+    update_payload = {
+        "name": "Updated Client Name",
+        "category": "client_billing",
+        "due_date": "2026-12-15",
+        "amount": 2500,
+        "currency": "INR",
+        "recurrence": "yearly",
+        "notes": "Updated billing note",
+        "remind_days_before": 10,
+    }
+    put_res = auth_client.put(f"/api/renewals/{ren_id}", json=update_payload)
+    assert put_res.status_code == 200
+    assert put_res.json()["success"] is True
+
+    # 3. Verify in list
+    list_res = auth_client.get("/api/renewals")
+    assert list_res.status_code == 200
+    updated = next(r for r in list_res.json() if r["id"] == ren_id)
+    assert updated["name"] == "Updated Client Name"
+    assert updated["category"] == "client_billing"
+    assert updated["due_date"] == "2026-12-15"
+    assert updated["amount"] == 2500
+
+
+def test_settings_read_and_update_endpoint(auth_client):
+    """GET and POST /api/settings reads and updates alert chat ID dynamically."""
+    # 1. Read current settings
+    read_res = auth_client.get("/api/settings")
+    assert read_res.status_code == 200
+    assert "alert_chat_id" in read_res.json()
+    assert "server_name" in read_res.json()
+
+    # 2. Update alert chat ID
+    update_res = auth_client.post("/api/settings", json={"alert_chat_id": "-100999888777"})
+    assert update_res.status_code == 200
+    assert update_res.json()["alert_chat_id"] == "-100999888777"
+
+    # 3. Verify persisted in GET
+    verify_res = auth_client.get("/api/settings")
+    assert verify_res.status_code == 200
+    assert verify_res.json()["alert_chat_id"] == "-100999888777"

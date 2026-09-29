@@ -184,7 +184,7 @@ class BackgroundScheduler:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for ep, result in zip(endpoints, results, strict=True):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning(f"Probe task exception for {ep['name']}: {result}")
                 continue
 

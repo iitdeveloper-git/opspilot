@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -11,14 +12,22 @@ SESSION_COOKIE_NAME = "opspilot_session"
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP address, respecting trusted X-Forwarded-For from Caddy proxy."""
-    xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        # First IP in comma-separated list is the client IP
-        return xff.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "127.0.0.1"
+    """Extract client IP, verifying X-Forwarded-For is only trusted from local/private reverse proxies."""
+    peer = request.client.host if request.client else "127.0.0.1"
+    is_trusted = False
+    try:
+        addr = ipaddress.ip_address(peer)
+        is_trusted = addr.is_loopback or addr.is_private
+    except ValueError:
+        is_trusted = False
+
+    if is_trusted:
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            parts = [p.strip() for p in xff.split(",") if p.strip()]
+            if parts:
+                return parts[0]
+    return peer
 
 
 def get_current_session(request: Request) -> dict:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
@@ -22,7 +22,7 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
-def create_web_app(settings: Settings) -> FastAPI:
+def create_web_app(settings: Settings, channel: Any = None) -> FastAPI:
     """Create and configure the FastAPI Web Command Center application."""
     app = FastAPI(
         title="OpsPilot 2.0 Command Center",
@@ -34,8 +34,26 @@ def create_web_app(settings: Settings) -> FastAPI:
 
     # Attach state
     app.state.settings = settings
+    app.state.channel = channel
     app.state.admin_password = settings.admin_password
     app.state.session_manager = create_session_manager(settings.admin_password)
+
+    # Security headers middleware
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self';"
+        )
+        return response
 
     # ── Auth Endpoints ────────────────────────────────────────────────────────
 

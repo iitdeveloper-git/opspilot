@@ -46,13 +46,22 @@ class LoginRateLimiter:
         # ip -> list of failed timestamp floats
         self._failures: dict[str, list[float]] = defaultdict(list)
 
+    def _evict_stale(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        stale = [k for k, attempts in self._failures.items() if not any(t > cutoff for t in attempts)]
+        for k in stale:
+            self._failures.pop(k, None)
+        if len(self._failures) > 5000:
+            for k in list(self._failures.keys())[:1000]:
+                self._failures.pop(k, None)
+
     def is_locked(self, ip: str) -> tuple[bool, int]:
         """
         Check if IP is currently locked out.
         Returns (is_locked, remaining_seconds).
         """
         now = time.time()
-        # Filter attempts within current window
+        self._evict_stale(now)
         cutoff = now - self.window_seconds
         attempts = [t for t in self._failures[ip] if t > cutoff]
         self._failures[ip] = attempts
@@ -66,6 +75,7 @@ class LoginRateLimiter:
     def record_failure(self, ip: str) -> None:
         """Record a failed login attempt for the given IP."""
         now = time.time()
+        self._evict_stale(now)
         cutoff = now - self.window_seconds
         attempts = [t for t in self._failures[ip] if t > cutoff]
         attempts.append(now)

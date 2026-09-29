@@ -49,6 +49,9 @@
           <span class="status-dot green" id="globalStatusDot"></span>
           <span>Host: <strong id="serverNameLabel">node-01</strong></span>
         </div>
+        <button id="themeToggleBtn" class="btn btn-secondary btn-sm" title="Toggle Light/Dark Theme" style="padding: 5px 10px;">
+          <span id="themeIcon">☀️</span>
+        </button>
         <button id="refreshTimerBtn" class="btn btn-secondary btn-sm" title="Click to pause/resume auto-refresh">
           ⏱ <span id="refreshTimerCountdown">5s</span>
         </button>
@@ -73,6 +76,9 @@
         </button>
         <button class="tab-btn" data-tab="incidents">
           🚨 Incidents <span class="tab-badge" id="navIncidentsCount">0</span>
+        </button>
+        <button class="tab-btn" data-tab="settings">
+          ⚙️ Settings
         </button>
       </nav>
     </div>
@@ -246,6 +252,38 @@
         </div>
       </section>
 
+      <!-- ── TAB 6: SETTINGS ─────────────────────────────────────────────── -->
+      <section id="tab-settings" class="tab-content">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">System & Alert Settings</h2>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">Configure real-time Telegram alert routing and server identity</p>
+          </div>
+        </div>
+
+        <div class="glass-panel" style="max-width: 680px; padding: 28px;">
+          <form id="settingsForm">
+            <div class="form-group">
+              <label class="form-label" style="font-weight: 600;">Telegram Alert Chat ID</label>
+              <input type="text" id="settingAlertChatId" class="form-input" placeholder="-100xxxxxxxxx or @channel_name" required>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
+                Where OpsPilot sends infrastructure downtime alerts and client billing reminders. Updates take effect immediately without restarting.
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Server Identity</label>
+              <input type="text" id="settingServerName" class="form-input" disabled style="opacity: 0.7; cursor: not-allowed;">
+            </div>
+
+            <div style="margin-top: 24px;">
+              <button type="submit" class="btn btn-primary">💾 Save Configuration</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+
     </main>
   </div>
 
@@ -391,6 +429,61 @@
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
           <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('addRenewalModal')">Cancel</button>
           <button type="submit" class="btn btn-primary btn-sm">Save Reminder</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Edit Renewal ──────────────────────────────────────────────── -->
+  <div id="editRenewalModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Edit Renewal / Client Billing</h3>
+        <button class="modal-close" onclick="closeModal('editRenewalModal')">&times;</button>
+      </div>
+      <form id="editRenewalForm">
+        <input type="hidden" id="editRenewalId">
+        <div class="form-group">
+          <label class="form-label">Title / Service Name</label>
+          <input type="text" id="editRenewalNameInput" class="form-input" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Category</label>
+            <select id="editRenewalCategoryInput" class="form-input">
+              <option value="client_billing">Client Billing</option>
+              <option value="vps">VPS / Cloud Hosting</option>
+              <option value="domain">Domain Registration</option>
+              <option value="saas">SaaS Tool</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Due Date (YYYY-MM-DD)</label>
+            <input type="date" id="editRenewalDueDateInput" class="form-input" required>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Amount (₹ INR)</label>
+            <input type="number" id="editRenewalAmountInput" class="form-input" step="any">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Recurrence</label>
+            <select id="editRenewalRecurrenceInput" class="form-input">
+              <option value="yearly">Yearly</option>
+              <option value="monthly">Monthly</option>
+              <option value="none">One-time (None)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <input type="text" id="editRenewalNotesInput" class="form-input">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('editRenewalModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Update Reminder</button>
         </div>
       </form>
     </div>

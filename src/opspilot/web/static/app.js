@@ -14,6 +14,7 @@ let timerInterval = null;
 // ── Authentication & Boot ───────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   initAuth();
   setupEventListeners();
 });
@@ -202,6 +203,65 @@ function setupEventListeners() {
     }
   });
 
+  // Theme Toggle Button
+  const themeBtn = document.getElementById('themeToggleBtn');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', toggleTheme);
+  }
+
+  // Edit Renewal Form
+  document.getElementById('editRenewalForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const renewalId = document.getElementById('editRenewalId').value;
+    const amt = document.getElementById('editRenewalAmountInput').value;
+    const payload = {
+      name: document.getElementById('editRenewalNameInput').value.trim(),
+      category: document.getElementById('editRenewalCategoryInput').value,
+      due_date: document.getElementById('editRenewalDueDateInput').value,
+      amount: amt ? parseFloat(amt) : null,
+      currency: 'INR',
+      recurrence: document.getElementById('editRenewalRecurrenceInput').value,
+      notes: document.getElementById('editRenewalNotesInput').value.trim(),
+      remind_days_before: 7
+    };
+    try {
+      const res = await apiFetch(`/api/renewals/${renewalId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message || 'Renewal updated.', 'success');
+        closeModal('editRenewalModal');
+        fetchRenewals();
+      } else {
+        showToast(data.detail || 'Failed to update renewal.', 'error');
+      }
+    } catch (err) {
+      showToast('Network error updating renewal.', 'error');
+    }
+  });
+
+  // Settings Form
+  document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const alertChatId = document.getElementById('settingAlertChatId').value.trim();
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify({ alert_chat_id: alertChatId })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message || 'Settings saved successfully!', 'success');
+      } else {
+        showToast(data.detail || 'Failed to update settings.', 'error');
+      }
+    } catch (err) {
+      showToast('Network error updating settings.', 'error');
+    }
+  });
+
   // Log Tail Select Change
   document.getElementById('logsTailSelect').addEventListener('change', (e) => {
     if (activeLogsContainer) {
@@ -256,6 +316,7 @@ function switchTab(tabId) {
   else if (tabId === 'probes') fetchProbes();
   else if (tabId === 'renewals') fetchRenewals();
   else if (tabId === 'incidents') fetchIncidents();
+  else if (tabId === 'settings') fetchSettings();
 }
 
 // ── Polling & Auto-Refresh ──────────────────────────────────────────────────
@@ -286,6 +347,7 @@ function refreshAll() {
   else if (currentTab === 'probes') fetchProbes();
   else if (currentTab === 'renewals') fetchRenewals();
   else if (currentTab === 'incidents') fetchIncidents();
+  else if (currentTab === 'settings') fetchSettings();
 }
 
 // ── Tab 1: Overview ─────────────────────────────────────────────────────────
@@ -511,6 +573,7 @@ async function fetchRenewals() {
     const res = await apiFetch('/api/renewals');
     if (!res.ok) return;
     const renewals = await res.json();
+    window.renewalsCache = renewals;
     document.getElementById('navRenewalsCount').textContent = renewals.filter(r => r.status === 'pending').length;
 
     const grid = document.getElementById('renewalsGridContainer');
@@ -554,6 +617,7 @@ async function fetchRenewals() {
             ${!isPaid ? `
               <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Mark Paid</button>
               <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze 7d</button>
+              <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
             ` : ''}
             <button class="btn btn-secondary btn-sm" onclick="deleteRenewal(${r.id})">🗑 Delete</button>
           </div>
@@ -766,4 +830,59 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+
+function openEditRenewalModal(renewalId) {
+  const renewal = (window.renewalsCache || []).find(r => r.id === renewalId);
+  if (!renewal) return;
+  document.getElementById('editRenewalId').value = renewal.id;
+  document.getElementById('editRenewalNameInput').value = renewal.name || '';
+  document.getElementById('editRenewalCategoryInput').value = renewal.category || 'other';
+  document.getElementById('editRenewalDueDateInput').value = renewal.due_date || '';
+  document.getElementById('editRenewalAmountInput').value = renewal.amount != null ? renewal.amount : '';
+  document.getElementById('editRenewalRecurrenceInput').value = renewal.recurrence || 'none';
+  document.getElementById('editRenewalNotesInput').value = renewal.notes || '';
+  openModal('editRenewalModal');
+}
+
+async function fetchSettings() {
+  try {
+    const res = await apiFetch('/api/settings');
+    if (!res.ok) return;
+    const data = await res.json();
+    const input = document.getElementById('settingAlertChatId');
+    if (input && !input.matches(':focus')) {
+      input.value = data.alert_chat_id || '';
+    }
+    const srv = document.getElementById('settingServerName');
+    if (srv) {
+      srv.value = `${data.server_name || 'node-01'} (${data.environment || 'production'})`;
+    }
+  } catch (err) {
+    console.error('Error fetching settings:', err);
+  }
+}
+
+// ── Theme Management ─────────────────────────────────────────────────────────
+
+function initTheme() {
+  const saved = localStorage.getItem('opspilot_theme') || 'dark';
+  applyTheme(saved);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('opspilot_theme', theme);
+  const icon = document.getElementById('themeIcon');
+  if (icon) {
+    icon.textContent = theme === 'light' ? '🌙' : '☀️';
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  showToast(`Switched to ${next === 'light' ? 'Light' : 'Dark'} theme`, 'info');
 }

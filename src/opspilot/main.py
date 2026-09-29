@@ -101,6 +101,14 @@ async def run_daemon(config_path: str | None = None) -> None:
     ignored_manager = IgnoredContainersManager()
     await _migrate_ignored_json(ignored_manager)
 
+    bot_client = None
+    channel = None
+    if settings.telegram_bot_token:
+        from aiogram import Bot
+
+        bot_client = Bot(token=settings.telegram_bot_token)
+        channel = TelegramChannel(bot_client, alert_chat_id)
+
     # — Web Command Center (Isolated Task, Disabled by default)
     web_server_task: asyncio.Task | None = None
     if settings.web_enabled:
@@ -109,7 +117,7 @@ async def run_daemon(config_path: str | None = None) -> None:
 
             from opspilot.web.app import create_web_app
 
-            web_app = create_web_app(settings)
+            web_app = create_web_app(settings, channel=channel)
             web_cfg = uvicorn.Config(
                 app=web_app,
                 host=settings.web_host,
@@ -123,7 +131,7 @@ async def run_daemon(config_path: str | None = None) -> None:
                 try:
                     logger.info(f"Web Command Center listening at http://{settings.web_host}:{settings.web_port}")
                     await server.serve()
-                except Exception as exc:
+                except BaseException as exc:
                     logger.error(f"Web server encountered an error: {exc}", exc_info=True)
 
             web_server_task = asyncio.create_task(_run_web_isolated())
@@ -132,7 +140,7 @@ async def run_daemon(config_path: str | None = None) -> None:
                 f"Web Command Center enabled, but dependencies missing ({e}). Install with: pip install 'opspilot[web]'"
             )
 
-    if not settings.telegram_bot_token:
+    if not settings.telegram_bot_token or not bot_client or not channel:
         logger.warning("No TELEGRAM_BOT_TOKEN set. Running in headless monitoring mode.")
         scheduler = BackgroundScheduler(settings)
         if web_server_task:
@@ -145,11 +153,6 @@ async def run_daemon(config_path: str | None = None) -> None:
             await scheduler.start()
         return
 
-    from aiogram import Bot
-
-    bot_client = Bot(token=settings.telegram_bot_token)
-    # Fix #1: construct channel with the DB-persisted (or config) chat_id
-    channel = TelegramChannel(bot_client, alert_chat_id)
     scheduler = BackgroundScheduler(settings, channel=channel)
     scheduler_task = asyncio.create_task(scheduler.start())
 

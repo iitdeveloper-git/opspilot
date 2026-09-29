@@ -221,3 +221,27 @@ async def delete_renewal(renewal_id: int) -> bool:
         )
         await db.commit()
         return True
+
+
+async def update_renewal(
+    renewal_id: int,
+    name: str,
+    category: str,
+    due_date: str,
+    amount: float | None = None,
+    currency: str = "INR",
+    notes: str = "",
+    recurrence: str = "none",
+    remind_days_before: int = 7,
+) -> bool:
+    """Update an existing renewal entry."""
+    async with db_conn() as db:
+        await db.execute(
+            """UPDATE renewals
+               SET name=?, category=?, due_date=?, amount=?, currency=?, notes=?,
+                   recurrence=?, remind_days_before=?, updated_at=datetime('now')
+               WHERE id=?""",
+            (name, category, due_date, amount, currency, notes, recurrence, remind_days_before, renewal_id),
+        )
+        await db.commit()
+        return True

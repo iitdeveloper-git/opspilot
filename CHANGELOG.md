@@ -3,6 +3,20 @@
 All notable changes to OpsPilot are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-30
+
+### Added
+- **Modern Web Command Center**: Glassmorphic SPA dashboard with Dark Slate & Light Mode theme switcher, real-time server telemetry, and terminal logs viewer.
+- **Renewals Full Edit & Lifecycle**: Real-time modal and PUT /api/renewals/{id} endpoint to update client name, amount, recurrence, due date, category, and notes.
+- **Runtime Alert Chat Settings**: In-browser Settings tab and POST /api/settings to configure and persist Telegram alert chat ID live without restarting.
+- **Web Security Hardening**: Constant-time password verification, rate-limiting lockout with TTL cleanup, signed session cookies, CSRF protection, and strict Content-Security-Policy headers.
+- **Failure Boundary Isolation**: Web task runs in an isolated asyncio task; web exceptions never terminate the OpsPilot daemon or Telegram bot.
+
+### Changed
+- Resolved 12 Mypy type-checking errors across scheduler and web API.
+- Fixed HTTP probe 307 redirect handling and custom browser User-Agent headers.
+- Upgraded version to 0.4.0.
+
 ## [0.3.0] - 2026-09-30
 
 ### Added
