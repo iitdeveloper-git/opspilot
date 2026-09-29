@@ -4,6 +4,7 @@ Abstract notification channel interface.
 Telegram is the first implementation. Future implementations (email, Slack, webhook)
 only need to subclass NotificationChannel and implement `send`.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

@@ -4,6 +4,7 @@ DB-backed container snooze.
 All datetimes stored as '%Y-%m-%d %H:%M:%S' (UTC, no timezone suffix)
 so they compare correctly with SQLite's datetime('now') which returns the same format.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

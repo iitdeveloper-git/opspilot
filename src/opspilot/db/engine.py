@@ -6,6 +6,7 @@ Usage:
         await db.execute(...)
         await db.commit()
 """
+
 from __future__ import annotations
 
 import logging

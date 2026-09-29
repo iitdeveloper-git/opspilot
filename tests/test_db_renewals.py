@@ -1,4 +1,5 @@
 """Tests for db/renewals.py — covering Fix #4 (snooze), Fix #5 (date clamping), seed idempotency."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -24,6 +25,7 @@ async def fresh_db(tmp_path):
 
 # ─── Seed idempotency ─────────────────────────────────────────────────────────
 
+
 async def test_seed_idempotent():
     items = [{"name": "OVH VPS", "category": "vps", "due_date": "2026-10-01"}]
     n1 = await seed_renewals_from_yaml(items)
@@ -35,6 +37,7 @@ async def test_seed_idempotent():
 
 
 # ─── Mark paid + recurrence ───────────────────────────────────────────────────
+
 
 async def test_mark_paid_monthly_normal():
     rid = await add_renewal("VPS", "vps", "2026-10-15", recurrence="monthly")
@@ -78,6 +81,7 @@ async def test_mark_paid_no_recurrence():
 
 # ─── Fix #4: snooze_renewal actually suppresses reminders ────────────────────
 
+
 async def test_snooze_renewal_suppresses_reminders():
     """A snoozed renewal must NOT appear in get_due_renewals."""
     rid = await add_renewal("Domain", "domain", "2026-10-01", remind_days_before=30)
@@ -105,6 +109,7 @@ async def test_snooze_renewal_reappears_after_expiry(monkeypatch):
 
 
 # ─── last_reminded_at dedupe (one alert per day) ─────────────────────────────
+
 
 async def test_mark_reminded_suppresses_same_day():
     rid = await add_renewal("VPS", "vps", "2026-10-01", remind_days_before=30)

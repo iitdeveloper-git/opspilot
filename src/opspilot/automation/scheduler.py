@@ -10,6 +10,7 @@ Loops:
   3. _run_renewal_loop  — Billing reminders, once per UTC day
   4. _run_maintenance   — Incident pruning + snooze cleanup, hourly
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -117,9 +118,7 @@ class BackgroundScheduler:
 
         containers = await asyncio.to_thread(collect_docker_statuses)
         for c in containers:
-            is_bad = c.health == "unhealthy" or (
-                c.status == "exited" and not c.name.startswith("run-")
-            )
+            is_bad = c.health == "unhealthy" or (c.status == "exited" and not c.name.startswith("run-"))
             if is_bad:
                 snoozed = await snooze_db.is_snoozed(c.name)
                 if not snoozed:
@@ -159,6 +158,7 @@ class BackgroundScheduler:
 
     async def _get_incident(self, inc_id: int) -> dict | None:
         from opspilot.db.engine import db_conn
+
         async with db_conn() as db:
             cursor = await db.execute("SELECT * FROM incidents WHERE id=?", (inc_id,))
             row = await cursor.fetchone()
@@ -174,7 +174,8 @@ class BackgroundScheduler:
 
         tasks = [
             probe_http_endpoint(
-                ep["name"], ep["url"],
+                ep["name"],
+                ep["url"],
                 ep.get("expected_status", 200),
                 ep.get("timeout_seconds", 5),
             )

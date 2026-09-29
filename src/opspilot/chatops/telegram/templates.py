@@ -7,11 +7,13 @@ All messages use HTML parse_mode. Consistent visual language:
   <code>      monospace for names, URLs, commands
   <b>         bold for key values
 """
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _now_str() -> str:
     return datetime.now(UTC).strftime("%d %b %Y · %H:%M UTC")
@@ -33,8 +35,11 @@ def _severity_icon(severity: str) -> str:
 
 def _category_icon(category: str) -> str:
     return {
-        "vps": "🖥️", "domain": "🌐", "ssl": "🔒",
-        "software": "💿", "other": "📦",
+        "vps": "🖥️",
+        "domain": "🌐",
+        "ssl": "🔒",
+        "software": "💿",
+        "other": "📦",
     }.get(category, "📦")
 
 
@@ -46,6 +51,7 @@ def _fmt_amount(amount: float | None, currency: str) -> str:
 
 
 # ─── Container / Docker Alerts ────────────────────────────────────────────────
+
 
 def container_alert(container: str, status: str, health: str, server: str, alert_count: int = 1) -> str:
     repeat = f"\n⚠️ <i>Alert #{alert_count} — first seen earlier</i>" if alert_count > 1 else ""
@@ -72,6 +78,7 @@ def container_recovered(container: str, server: str) -> str:
 
 
 # ─── HTTP Probe Alerts ────────────────────────────────────────────────────────
+
 
 def probe_down(name: str, url: str, status_code: int | None, error: str | None, alert_count: int = 1) -> str:
     repeat = f"\n⚠️ <i>Alert #{alert_count} — still unreachable</i>" if alert_count > 1 else ""
@@ -101,6 +108,7 @@ def probe_recovered(name: str, url: str, latency_ms: float) -> str:
 
 # ─── SSL Alerts ───────────────────────────────────────────────────────────────
 
+
 def ssl_expiring(domain: str, days_remaining: int, expires_at: str) -> str:
     badge = _days_badge(days_remaining)
     return (
@@ -116,6 +124,7 @@ def ssl_expiring(domain: str, days_remaining: int, expires_at: str) -> str:
 
 
 # ─── Disk / System Alerts ─────────────────────────────────────────────────────
+
 
 def disk_critical(server: str, disk_pct: float, free_gb: float) -> str:
     bar_filled = int(disk_pct / 10)
@@ -134,6 +143,7 @@ def disk_critical(server: str, disk_pct: float, free_gb: float) -> str:
 
 # ─── Renewal / Billing Alerts ─────────────────────────────────────────────────
 
+
 def renewal_reminder(renewal: dict) -> str:
     due = date.fromisoformat(renewal["due_date"])
     days = (due - date.today()).days
@@ -144,10 +154,7 @@ def renewal_reminder(renewal: dict) -> str:
     if renewal.get("recurrence", "none") != "none":
         recur_str = f"\n🔄 <b>Recurrence:</b> {renewal['recurrence'].capitalize()}"
     notes_str = f"\n📝 <b>Notes:</b> <i>{renewal['notes']}</i>" if renewal.get("notes") else ""
-    overdue_note = (
-        "\n\n🚨 <i>This is overdue! Mark it paid or update the due date.</i>"
-        if days < 0 else ""
-    )
+    overdue_note = "\n\n🚨 <i>This is overdue! Mark it paid or update the due date.</i>" if days < 0 else ""
     return (
         f"{icon} <b>Renewal Due</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -166,10 +173,7 @@ def renewal_paid_confirmation(renewal: dict, next_renewal: dict | None = None) -
     icon = _category_icon(renewal["category"])
     next_str = ""
     if next_renewal:
-        next_str = (
-            f"\n\n🔄 <b>Next renewal auto-scheduled:</b>\n"
-            f"   📅 {next_renewal['due_date']}"
-        )
+        next_str = f"\n\n🔄 <b>Next renewal auto-scheduled:</b>\n   📅 {next_renewal['due_date']}"
     return (
         f"✅ <b>Marked as Paid</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -190,6 +194,7 @@ def renewal_snoozed(renewal: dict, until_str: str) -> str:
 
 # ─── Incident list (for /incidents command) ───────────────────────────────────
 
+
 def format_incidents_page(incidents: list[dict], page: int, total: int, per_page: int = 5) -> str:
     if not incidents:
         return "✅ <b>No open incidents.</b>\n\n<i>All systems are operating normally.</i>"
@@ -208,6 +213,7 @@ def format_incidents_page(incidents: list[dict], page: int, total: int, per_page
 
 
 # ─── Renewals list (for /renewals command) ────────────────────────────────────
+
 
 def format_renewals_page(renewals: list[dict], page: int, total: int, per_page: int = 5) -> str:
     if not renewals:
@@ -228,11 +234,14 @@ def format_renewals_page(renewals: list[dict], page: int, total: int, per_page: 
             day_str = f"🟡 {days}d"
         else:
             day_str = f"🟢 {days}d"
-        lines.append(f"\n{icon} <b>{r['name']}</b>  [{day_str}]\n   💰 {amount_str}  |  📅 {r['due_date']}  |  #{r['id']}")
+        lines.append(
+            f"\n{icon} <b>{r['name']}</b>  [{day_str}]\n   💰 {amount_str}  |  📅 {r['due_date']}  |  #{r['id']}"
+        )
     return "\n".join(lines)
 
 
 # ─── Probes list ──────────────────────────────────────────────────────────────
+
 
 def format_probes_list(probes: list[dict], results: list) -> str:
     if not probes:
@@ -253,6 +262,7 @@ def format_probes_list(probes: list[dict], results: list) -> str:
 
 
 # ─── System status ────────────────────────────────────────────────────────────
+
 
 def system_status(m, server: str) -> str:
     cpu_bar = "█" * int(m.cpu_percent / 10) + "░" * (10 - int(m.cpu_percent / 10))

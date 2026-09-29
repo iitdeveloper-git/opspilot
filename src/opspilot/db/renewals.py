@@ -6,6 +6,7 @@ Fix #4: snooze_renewal writes to snoozed_until column (not last_reminded_at).
 Fix #5: mark_paid clamps days to last day of target month to avoid ValueError.
 Fix #2: all datetimes use '%Y-%m-%d %H:%M:%S' UTC format for SQL comparability.
 """
+
 from __future__ import annotations
 
 import calendar
@@ -63,9 +64,8 @@ async def seed_renewals_from_yaml(items: list[dict]) -> int:
                     inserted += 1
             except Exception as exc:
                 import logging
-                logging.getLogger("opspilot.db.renewals").warning(
-                    f"Failed to seed renewal '{item.get('name')}': {exc}"
-                )
+
+                logging.getLogger("opspilot.db.renewals").warning(f"Failed to seed renewal '{item.get('name')}': {exc}")
         await db.commit()
     return inserted
 
@@ -73,9 +73,7 @@ async def seed_renewals_from_yaml(items: list[dict]) -> int:
 async def list_renewals(status: str | None = None) -> list[dict]:
     async with db_conn() as db:
         if status:
-            cursor = await db.execute(
-                "SELECT * FROM renewals WHERE status=? ORDER BY due_date ASC", (status,)
-            )
+            cursor = await db.execute("SELECT * FROM renewals WHERE status=? ORDER BY due_date ASC", (status,))
         else:
             cursor = await db.execute("SELECT * FROM renewals ORDER BY due_date ASC")
         return [dict(r) for r in await cursor.fetchall()]
@@ -134,6 +132,7 @@ async def mark_paid(renewal_id: int) -> dict | None:
             else:
                 # Unknown recurrence — skip roll-forward, don't silently break
                 import logging
+
                 logging.getLogger("opspilot.db.renewals").warning(
                     f"Unknown recurrence '{recurrence}' for renewal #{renewal_id}. Skipping roll-forward."
                 )
@@ -145,9 +144,14 @@ async def mark_paid(renewal_id: int) -> dict | None:
                    (name, category, due_date, amount, currency, notes, recurrence, remind_days_before, source)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'auto_recur')""",
                 (
-                    renewal["name"], renewal["category"], next_due.isoformat(),
-                    renewal["amount"], renewal["currency"], renewal["notes"],
-                    recurrence, renewal["remind_days_before"],
+                    renewal["name"],
+                    renewal["category"],
+                    next_due.isoformat(),
+                    renewal["amount"],
+                    renewal["currency"],
+                    renewal["notes"],
+                    recurrence,
+                    renewal["remind_days_before"],
                 ),
             )
             next_cursor = await db.execute(

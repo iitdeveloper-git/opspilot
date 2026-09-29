@@ -14,6 +14,7 @@ Commands:
 
 All message formatting uses HTML via chatops.telegram.templates.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,6 +54,7 @@ PER_PAGE = 5
 
 # ─── FSM States ───────────────────────────────────────────────────────────────
 
+
 class AddRenewalForm(StatesGroup):
     name = State()
     category = State()
@@ -68,6 +70,7 @@ class AddProbeForm(StatesGroup):
 
 
 # ─── Auth Middleware ───────────────────────────────────────────────────────────
+
 
 class AuthMiddleware(BaseMiddleware):
     def __init__(self, access: AccessController, audit: AuditLogger):
@@ -98,13 +101,19 @@ class AuthMiddleware(BaseMiddleware):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _parse_duration_to_dt(duration_str: str) -> datetime | None:
     """Convert '1h', '24h', '7d', '1d', '3d' to UTC datetime. None = indefinite."""
     d = duration_str.lower().strip()
     if d in ("forever", "indefinite"):
         return None
-    mapping = {"1h": timedelta(hours=1), "24h": timedelta(hours=24),
-               "1d": timedelta(days=1), "3d": timedelta(days=3), "7d": timedelta(days=7)}
+    mapping = {
+        "1h": timedelta(hours=1),
+        "24h": timedelta(hours=24),
+        "1d": timedelta(days=1),
+        "3d": timedelta(days=3),
+        "7d": timedelta(days=7),
+    }
     td = mapping.get(d)
     return datetime.now(UTC) + td if td else None
 
@@ -117,6 +126,7 @@ def _snooze_until_str(duration_str: str) -> str:
 
 
 # ─── Bot Factory ──────────────────────────────────────────────────────────────
+
 
 def create_bot_app(
     settings: Settings,
@@ -228,10 +238,10 @@ def create_bot_app(
         result = await executor.run_command(["docker", "logs", "--tail", str(n), container_name])
         output = (result.get("stdout") or "") + (result.get("stderr") or "")
         text = (
-            f"📋 <b>Logs: {container_name}</b> (last {n} lines)\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<pre>{output[:3500]}</pre>"
-        ) if output else f"📋 <b>{container_name}</b>: No logs or container not found."
+            (f"📋 <b>Logs: {container_name}</b> (last {n} lines)\n━━━━━━━━━━━━━━━━━━━━━\n<pre>{output[:3500]}</pre>")
+            if output
+            else f"📋 <b>{container_name}</b>: No logs or container not found."
+        )
         await message.reply(text, parse_mode="HTML")
 
     # ─── /restart ─────────────────────────────────────────────────────────────
@@ -296,7 +306,7 @@ def create_bot_app(
         all_r = await ren_db.list_renewals(status="pending")
         total = len(all_r)
         start = (page - 1) * PER_PAGE
-        page_items = all_r[start:start + PER_PAGE]
+        page_items = all_r[start : start + PER_PAGE]
         total_pages = max(1, -(-total // PER_PAGE))
         text = tpl.format_renewals_page(page_items, page, total)
         pagination = kb.get_pagination_keyboard("renewals", page, total_pages)
@@ -342,6 +352,7 @@ def create_bot_app(
         raw = (message.text or "").strip()
         try:
             from datetime import date as _date
+
             _date.fromisoformat(raw)  # validate
         except ValueError:
             await message.reply("❌ Invalid date. Please use <code>YYYY-MM-DD</code> format.", parse_mode="HTML")
@@ -402,7 +413,13 @@ def create_bot_app(
     async def cmd_probes(message: Message):
         endpoints = await ep_db.list_endpoints(enabled_only=True)
         yaml_eps = [
-            {"name": e.name, "url": e.url, "expected_status": e.expected_status, "timeout_seconds": e.timeout_seconds, "id": None}
+            {
+                "name": e.name,
+                "url": e.url,
+                "expected_status": e.expected_status,
+                "timeout_seconds": e.timeout_seconds,
+                "id": None,
+            }
             for e in settings.monitoring.http_endpoints
         ]
         ep_names = {ep["name"] for ep in endpoints}
@@ -419,6 +436,7 @@ def create_bot_app(
         status_msg = await message.reply("🔄 <i>Checking endpoints...</i>", parse_mode="HTML")
         tasks = [probe_http_endpoint(ep["name"], ep["url"]) for ep in endpoints]
         import asyncio
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
         valid_results = [r for r in results if not isinstance(r, Exception)]
         text = tpl.format_probes_list(endpoints, valid_results)
@@ -449,7 +467,9 @@ def create_bot_app(
     async def addprobe_url(message: Message, state: FSMContext):
         url = (message.text or "").strip()
         if not url.startswith("http"):
-            await message.reply("❌ URL must start with <code>http://</code> or <code>https://</code>", parse_mode="HTML")
+            await message.reply(
+                "❌ URL must start with <code>http://</code> or <code>https://</code>", parse_mode="HTML"
+            )
             return
         await state.update_data(url=url)
         await state.set_state(AddProbeForm.expected_status)
@@ -487,11 +507,15 @@ def create_bot_app(
     async def cmd_rmprobe(message: Message, command: CommandObject):
         arg = (command.args or "").strip()
         if not arg.isdigit():
-            await message.reply("Usage: /rmprobe <code>&lt;endpoint_id&gt;</code>\nFind IDs with /probes", parse_mode="HTML")
+            await message.reply(
+                "Usage: /rmprobe <code>&lt;endpoint_id&gt;</code>\nFind IDs with /probes", parse_mode="HTML"
+            )
             return
         ep_id = int(arg)
         await ep_db.remove_endpoint(ep_id)
-        await message.reply(f"🔕 <b>Endpoint #{ep_id} disabled.</b>\n<i>It will not be re-added on restart.</i>", parse_mode="HTML")
+        await message.reply(
+            f"🔕 <b>Endpoint #{ep_id} disabled.</b>\n<i>It will not be re-added on restart.</i>", parse_mode="HTML"
+        )
 
     # ─── /incidents ───────────────────────────────────────────────────────────
 
@@ -536,6 +560,7 @@ def create_bot_app(
     @dp.message(Command("settings"))
     async def cmd_settings(message: Message):
         from opspilot.db.store import get_all_settings
+
         all_s = await get_all_settings()
         lines = ["⚙️ <b>Runtime Settings</b>\n━━━━━━━━━━━━━━━━━━━━━"]
         if not all_s:
@@ -589,7 +614,8 @@ def create_bot_app(
             output = (result.get("stdout") or "") + (result.get("stderr") or "")
             text = (
                 f"📋 <b>Logs: {container_name}</b>\n<pre>{output[:3500]}</pre>"
-                if output else f"📋 <b>{container_name}</b>: No logs."
+                if output
+                else f"📋 <b>{container_name}</b>: No logs."
             )
             await query.message.reply(text, parse_mode="HTML")
 
@@ -651,9 +677,13 @@ def create_bot_app(
             status_msg = await query.message.reply("🧹 <i>Pruning Docker cache...</i>", parse_mode="HTML")
             result = await executor.run_command(["docker", "system", "prune", "-f"])
             if result.get("returncode") == 0:
-                await status_msg.edit_text("🧹 <b>Docker Cache Pruned</b>\n✅ Dangling images and build cache cleared.", parse_mode="HTML")
+                await status_msg.edit_text(
+                    "🧹 <b>Docker Cache Pruned</b>\n✅ Dangling images and build cache cleared.", parse_mode="HTML"
+                )
             else:
-                await status_msg.edit_text(f"❌ Cleanup failed: <code>{result.get('stderr', 'unknown')}</code>", parse_mode="HTML")
+                await status_msg.edit_text(
+                    f"❌ Cleanup failed: <code>{result.get('stderr', 'unknown')}</code>", parse_mode="HTML"
+                )
         await query.answer()
 
     @dp.callback_query(F.data.startswith("cancel:"))
@@ -675,9 +705,7 @@ def create_bot_app(
         if action == "resolve":
             await inc_db.resolve_incident_by_id(inc_id)
             if query.message:
-                await query.message.edit_text(
-                    f"✅ <b>Incident #{inc_id} resolved.</b>", parse_mode="HTML"
-                )
+                await query.message.edit_text(f"✅ <b>Incident #{inc_id} resolved.</b>", parse_mode="HTML")
         elif action == "snooze":
             duration = parts[3] if len(parts) > 3 else "1h"
             exp_dt = _parse_duration_to_dt(duration)
@@ -789,7 +817,10 @@ def create_bot_app(
                 await query.message.reply("🌐 <b>No endpoints configured.</b>\nUse /addprobe", parse_mode="HTML")
             else:
                 import asyncio as _a
-                results = await _a.gather(*[probe_http_endpoint(ep["name"], ep["url"]) for ep in endpoints], return_exceptions=True)
+
+                results = await _a.gather(
+                    *[probe_http_endpoint(ep["name"], ep["url"]) for ep in endpoints], return_exceptions=True
+                )
                 valid = [r for r in results if not isinstance(r, Exception)]
                 await query.message.reply(tpl.format_probes_list(endpoints, valid), parse_mode="HTML")
 
@@ -798,7 +829,7 @@ def create_bot_app(
             all_r = await ren_db.list_renewals(status="pending")
             total = len(all_r)
             start = (page - 1) * PER_PAGE
-            page_items = all_r[start:start + PER_PAGE]
+            page_items = all_r[start : start + PER_PAGE]
             total_pages = max(1, -(-total // PER_PAGE))
             text = tpl.format_renewals_page(page_items, page, total)
             pagination = kb.get_pagination_keyboard("renewals", page, total_pages)
@@ -835,7 +866,10 @@ def create_bot_app(
         if action == "remove":
             await ep_db.remove_endpoint(ep_id)
             if query.message:
-                await query.message.edit_text(f"🔕 <b>Endpoint #{ep_id} disabled.</b>\n<i>It will not be re-added on restart.</i>", parse_mode="HTML")
+                await query.message.edit_text(
+                    f"🔕 <b>Endpoint #{ep_id} disabled.</b>\n<i>It will not be re-added on restart.</i>",
+                    parse_mode="HTML",
+                )
         elif action == "cancel":
             if query.message:
                 await query.message.edit_text("❌ <b>Cancelled.</b>", parse_mode="HTML")

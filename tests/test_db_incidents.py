@@ -1,4 +1,5 @@
 """Tests for db/incidents.py — Fix #2 (datetime format), Fix #3 (snooze doesn't re-alert)."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -22,6 +23,7 @@ async def fresh_db(tmp_path):
 
 
 # ─── Fix #3: snooze doesn't create duplicate + re-alert ──────────────────────
+
 
 async def test_snooze_incident_suppresses_alert():
     """Snoozed incident → open_incident returns is_snoozed=True, not is_new=True."""
@@ -65,6 +67,7 @@ async def test_snooze_expires_rearms_alert():
 
 # ─── Dedupe ───────────────────────────────────────────────────────────────────
 
+
 async def test_open_incident_deduplication():
     id1, new1, _ = await open_incident("docker", "api", "critical", "down")
     id2, new2, _ = await open_incident("docker", "api", "critical", "still down")
@@ -74,6 +77,7 @@ async def test_open_incident_deduplication():
 
 
 # ─── Auto-resolve ─────────────────────────────────────────────────────────────
+
 
 async def test_resolve_incident_clears_open():
     await open_incident("docker", "worker", "critical", "exited")
@@ -90,12 +94,14 @@ async def test_resolve_returns_none_if_not_found():
 
 # ─── Fix #2: datetime format stored without timezone suffix ──────────────────
 
+
 async def test_snooze_format_is_sql_comparable():
     """
     Verify the stored snoozed_until value is comparable with datetime('now') in SQLite.
     The value must NOT contain a '+00:00' suffix which would break text comparison.
     """
     from opspilot.db.engine import db_conn
+
     inc_id, _, _ = await open_incident("http_probe", "https://format-test.com", "critical", "down")
     until = datetime.now(UTC) + timedelta(hours=2)
     await snooze_incident(inc_id, until)
@@ -113,15 +119,15 @@ async def test_snooze_format_is_sql_comparable():
 
 # ─── Pruning ──────────────────────────────────────────────────────────────────
 
+
 async def test_prune_old_incidents_removes_resolved():
     inc_id, _, _ = await open_incident("http_probe", "https://old.com", "warning", "slow")
     await resolve_incident_by_id(inc_id)
     # Force resolved_at to 31 days ago
     from opspilot.db.engine import db_conn
+
     async with db_conn() as db:
-        await db.execute(
-            "UPDATE incidents SET resolved_at=datetime('now','-31 days') WHERE id=?", (inc_id,)
-        )
+        await db.execute("UPDATE incidents SET resolved_at=datetime('now','-31 days') WHERE id=?", (inc_id,))
         await db.commit()
     pruned = await prune_old_incidents(days=30)
     assert pruned == 1

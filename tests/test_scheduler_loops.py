@@ -4,6 +4,7 @@ Tests for the BackgroundScheduler loops.
 Strategy: mock the DB layer and channel so we test scheduling logic in isolation
 without touching Docker, psutil, or the network.
 """
+
 import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +18,7 @@ from opspilot.config import Settings
 
 class _CaptureChannel(NotificationChannel):
     """Captures all messages sent through the channel."""
+
     def __init__(self):
         self.messages: list[tuple[str, object]] = []
 
@@ -35,14 +37,14 @@ def _make_scheduler(channel: NotificationChannel) -> BackgroundScheduler:
 
 # ─── Probe loop ───────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_probe_loop_sends_alert_on_failure():
     """A failing probe must open an incident and send exactly one alert."""
     channel = _CaptureChannel()
     scheduler = _make_scheduler(channel)
 
-    fake_ep = {"name": "GNS API", "url": "https://gns.test/health",
-               "expected_status": 200, "timeout_seconds": 5}
+    fake_ep = {"name": "GNS API", "url": "https://gns.test/health", "expected_status": 200, "timeout_seconds": 5}
     fake_result = MagicMock(is_healthy=False, status_code=None, error="Connection refused", latency_ms=0)
 
     with (
@@ -66,8 +68,7 @@ async def test_probe_loop_sends_recovery_on_restore():
     channel = _CaptureChannel()
     scheduler = _make_scheduler(channel)
 
-    fake_ep = {"name": "GNS API", "url": "https://gns.test/health",
-               "expected_status": 200, "timeout_seconds": 5}
+    fake_ep = {"name": "GNS API", "url": "https://gns.test/health", "expected_status": 200, "timeout_seconds": 5}
     fake_result = MagicMock(is_healthy=True, status_code=200, latency_ms=42.0)
 
     with (
@@ -115,15 +116,22 @@ async def test_probe_loop_no_endpoints_is_noop():
 
 # ─── Renewal loop ─────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_renewal_loop_sends_reminder_for_due():
     channel = _CaptureChannel()
     scheduler = _make_scheduler(channel)
 
     due_renewal = {
-        "id": 3, "name": "OVH VPS", "category": "vps",
-        "due_date": "2026-10-01", "amount": 1200.0, "currency": "INR",
-        "notes": "", "recurrence": "monthly", "status": "pending",
+        "id": 3,
+        "name": "OVH VPS",
+        "category": "vps",
+        "due_date": "2026-10-01",
+        "amount": 1200.0,
+        "currency": "INR",
+        "notes": "",
+        "recurrence": "monthly",
+        "status": "pending",
     }
 
     with (
@@ -156,15 +164,24 @@ async def test_renewal_loop_runs_only_once_per_day():
 
 # ─── Health loop — disk alert ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_health_loop_sends_disk_alert():
     channel = _CaptureChannel()
     scheduler = _make_scheduler(channel)
 
     fake_metrics = MagicMock(
-        disk_percent=95.0, disk_free_gb=5.0, ram_percent=50.0,
-        cpu_percent=20.0, cpu_count=4, ram_used_gb=8.0, ram_total_gb=16.0,
-        disk_used_gb=95.0, disk_total_gb=100.0, uptime_human="5d", load_avg=[0.5, 0.4, 0.3],
+        disk_percent=95.0,
+        disk_free_gb=5.0,
+        ram_percent=50.0,
+        cpu_percent=20.0,
+        cpu_count=4,
+        ram_used_gb=8.0,
+        ram_total_gb=16.0,
+        disk_used_gb=95.0,
+        disk_total_gb=100.0,
+        uptime_human="5d",
+        load_avg=[0.5, 0.4, 0.3],
     )
 
     # Patch asyncio.to_thread to intercept the blocking calls and return test doubles
@@ -191,10 +208,12 @@ async def test_health_loop_sends_disk_alert():
 
 # ─── Scheduler error logging ──────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_scheduler_logs_loop_exceptions(caplog):
     """Fix #7: exceptions from gather must be logged, not silently discarded."""
     import logging
+
     channel = _CaptureChannel()
     scheduler = _make_scheduler(channel)
     scheduler.running = False  # prevent infinite loop
@@ -219,9 +238,8 @@ async def test_scheduler_logs_loop_exceptions(caplog):
             if isinstance(res, Exception):
                 loop_name = ["health_loop", "probe_loop"][i]
                 import logging as _log
-                _log.getLogger("opspilot.scheduler").error(
-                    f"Scheduler {loop_name} raised: {res}", exc_info=res
-                )
+
+                _log.getLogger("opspilot.scheduler").error(f"Scheduler {loop_name} raised: {res}", exc_info=res)
 
     error_msgs = [r.message for r in caplog.records if r.levelname == "ERROR"]
     assert any("health_loop" in m for m in error_msgs)

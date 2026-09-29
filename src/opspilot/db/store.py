@@ -1,4 +1,5 @@
 """Key-value settings store backed by DB. Hot-configurable without redeploy."""
+
 from __future__ import annotations
 
 from opspilot.db.engine import db_conn

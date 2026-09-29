@@ -5,6 +5,7 @@ Fix #2: all datetimes stored as '%Y-%m-%d %H:%M:%S' UTC (no +00:00 suffix)
 Fix #3: open_incident finds the existing incident regardless of snooze state,
         then returns is_snoozed so callers can decide whether to alert.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -136,9 +137,7 @@ async def list_incidents(limit: int = 20, offset: int = 0) -> list[dict]:
 
 async def count_open_incidents() -> int:
     async with db_conn() as db:
-        cursor = await db.execute(
-            "SELECT COUNT(*) as c FROM incidents WHERE resolved_at IS NULL"
-        )
+        cursor = await db.execute("SELECT COUNT(*) as c FROM incidents WHERE resolved_at IS NULL")
         row = await cursor.fetchone()
         return row["c"] if row else 0
 

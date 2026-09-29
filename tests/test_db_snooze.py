@@ -1,4 +1,5 @@
 """Tests for db/snooze.py — Fix #2 (datetime format) and snooze expiry."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -21,9 +22,11 @@ async def fresh_db(tmp_path):
 
 # ─── Fix #2: correct format stored ───────────────────────────────────────────
 
+
 async def test_snooze_format_has_no_timezone_suffix():
     """Stored expires_at must NOT have +00:00 suffix — it must compare with datetime('now')."""
     from opspilot.db.engine import db_conn
+
     exp = datetime.now(UTC) + timedelta(hours=2)
     await snooze_container("test_app", exp)
 
@@ -39,6 +42,7 @@ async def test_snooze_format_has_no_timezone_suffix():
 
 # ─── Active snooze ────────────────────────────────────────────────────────────
 
+
 async def test_is_snoozed_active():
     exp = datetime.now(UTC) + timedelta(hours=1)
     await snooze_container("redis", exp)
@@ -51,6 +55,7 @@ async def test_is_snoozed_forever():
 
 
 # ─── Expiry ───────────────────────────────────────────────────────────────────
+
 
 async def test_expired_snooze_not_active():
     """
@@ -74,6 +79,7 @@ async def test_cleanup_removes_expired():
 
 # ─── Unsnooze ─────────────────────────────────────────────────────────────────
 
+
 async def test_unsnooze():
     await snooze_container("worker", None)
     assert await is_snoozed("worker")
@@ -82,6 +88,7 @@ async def test_unsnooze():
 
 
 # ─── List ─────────────────────────────────────────────────────────────────────
+
 
 async def test_list_snoozed_only_active():
     await snooze_container("active", datetime.now(UTC) + timedelta(hours=3))

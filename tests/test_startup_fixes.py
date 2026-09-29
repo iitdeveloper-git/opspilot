@@ -5,6 +5,7 @@ Fix #1 — /setchat persists across restarts (alert_chat_id read from DB on star
 Fix #2 — Deleted YAML items don't come back after restart (soft-delete)
 Fix #3 — v0.2.0 ignored_containers.json migrated to container_snooze DB on first boot
 """
+
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -26,6 +27,7 @@ async def fresh_db(tmp_path):
 
 # ─── Fix #1: /setchat persists across restarts ────────────────────────────────
 
+
 async def test_setchat_persisted_and_read_at_startup():
     """
     Simulates: user calls /setchat → saves to DB → process restarts →
@@ -41,8 +43,7 @@ async def test_setchat_persisted_and_read_at_startup():
     startup_chat_id = await get_setting("alert_chat_id", config_chat_id)
 
     assert startup_chat_id == new_chat_id, (
-        f"Expected DB value '{new_chat_id}', got '{startup_chat_id}'. "
-        "Startup is ignoring the persisted /setchat value."
+        f"Expected DB value '{new_chat_id}', got '{startup_chat_id}'. Startup is ignoring the persisted /setchat value."
     )
 
 
@@ -68,6 +69,7 @@ async def test_setchat_updates_live_channel():
 
 
 # ─── Fix #2: Deleted YAML items don't come back on restart ────────────────────
+
 
 async def test_removed_endpoint_not_reseeded_after_restart():
     """
@@ -143,6 +145,7 @@ async def test_deleted_renewal_not_reseeded_after_restart():
 
 # ─── Fix #3: v0.2.0 ignored_containers.json migrated on first boot ────────────
 
+
 async def test_migrate_ignored_json_new_format(tmp_path, fresh_db):
     """New JSON format (dict with expires_at) is imported into container_snooze."""
     from opspilot.core.ignored import IgnoredContainersManager
@@ -156,11 +159,12 @@ async def test_migrate_ignored_json_new_format(tmp_path, fresh_db):
     future = (datetime.now(UTC) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
     data = {
         "my_app": {"ignored_at": "2026-09-01T00:00:00+00:00", "expires_at": future, "duration_str": "5h"},
-        "redis":  {"ignored_at": "2026-09-01T00:00:00+00:00", "expires_at": None,   "duration_str": "forever"},
+        "redis": {"ignored_at": "2026-09-01T00:00:00+00:00", "expires_at": None, "duration_str": "forever"},
     }
     json_file.write_text(json.dumps(data))
 
     import os
+
     orig_dir = os.getcwd()
     os.chdir(tmp_path)
     try:
@@ -170,7 +174,7 @@ async def test_migrate_ignored_json_new_format(tmp_path, fresh_db):
         os.chdir(orig_dir)
 
     assert await is_snoozed("my_app"), "my_app should be snoozed after migration"
-    assert await is_snoozed("redis"),  "redis (forever) should be snoozed after migration"
+    assert await is_snoozed("redis"), "redis (forever) should be snoozed after migration"
     assert not json_file.exists(), "JSON file must be renamed after migration"
     assert (json_file.with_suffix(".json.migrated")).exists(), "Renamed file must exist"
 
@@ -186,6 +190,7 @@ async def test_migrate_ignored_json_old_format(tmp_path, fresh_db):
     json_file.write_text(json.dumps(["celery_worker", "flower"]))
 
     import os
+
     orig_dir = os.getcwd()
     os.chdir(tmp_path)
     try:
@@ -212,6 +217,7 @@ async def test_migrate_ignored_json_skips_expired(tmp_path, fresh_db):
     json_file.write_text(json.dumps(data))
 
     import os
+
     orig_dir = os.getcwd()
     os.chdir(tmp_path)
     try:
@@ -234,6 +240,7 @@ async def test_migrate_ignored_json_idempotent(tmp_path, fresh_db):
     migrated_file.write_text(json.dumps(["old_container"]))
 
     import os
+
     orig_dir = os.getcwd()
     os.chdir(tmp_path)
     try:

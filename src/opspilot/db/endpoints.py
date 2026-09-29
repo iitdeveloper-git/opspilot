@@ -1,4 +1,5 @@
 """CRUD for DB-managed HTTP endpoints — hot-configurable without redeploy."""
+
 from __future__ import annotations
 
 from opspilot.db.engine import db_conn
@@ -30,9 +31,7 @@ async def seed_endpoints_from_yaml(items: list[dict]) -> int:
 async def list_endpoints(enabled_only: bool = True) -> list[dict]:
     async with db_conn() as db:
         if enabled_only:
-            cursor = await db.execute(
-                "SELECT * FROM endpoints WHERE enabled = 1 ORDER BY name ASC"
-            )
+            cursor = await db.execute("SELECT * FROM endpoints WHERE enabled = 1 ORDER BY name ASC")
         else:
             cursor = await db.execute("SELECT * FROM endpoints ORDER BY name ASC")
         rows = await cursor.fetchall()

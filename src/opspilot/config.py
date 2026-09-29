@@ -1,4 +1,5 @@
 """OpsPilot 2.0 configuration — fully backward compatible."""
+
 from pathlib import Path
 
 import yaml
@@ -22,9 +23,10 @@ class HttpEndpoint(BaseModel):
 
 class RenewalItem(BaseModel):
     """Static renewal entry configurable in config.yaml (seeded to DB on first run)."""
+
     name: str
-    category: str = "other"   # vps | domain | ssl | software | other
-    due_date: str              # ISO8601: "2026-10-15"
+    category: str = "other"  # vps | domain | ssl | software | other
+    due_date: str  # ISO8601: "2026-10-15"
     amount: float | None = None
     currency: str = "INR"
     notes: str = ""

@@ -4,6 +4,7 @@ Tests for bot FSM multi-step flows: /addrenew and /addprobe.
 Strategy: use aiogram's MockedBot + MemoryStorage to drive FSM states
 without a real Telegram connection.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,13 +17,14 @@ from opspilot.config import Settings
 def _make_settings() -> Settings:
     return Settings(
         telegram_bot_token="fake:token",
-        telegram_allowed_user_ids="",   # allow all in dev
+        telegram_allowed_user_ids="",  # allow all in dev
         auth_mode="development",
         server_name="test-node",
     )
 
 
 # ─── /addrenew FSM ────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_addrenew_fsm_happy_path():
@@ -76,6 +78,7 @@ async def test_addrenew_invalid_date_stays_in_state():
     valid = True
     try:
         from datetime import date
+
         date.fromisoformat(raw)
     except ValueError:
         valid = False
@@ -86,6 +89,7 @@ async def test_addrenew_invalid_date_stays_in_state():
 
 
 # ─── /addprobe FSM ────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_addprobe_fsm_url_validation():
@@ -125,6 +129,7 @@ async def test_addprobe_fsm_state_transitions():
 
 # ─── /setchat — live channel update ──────────────────────────────────────────
 
+
 def test_setchat_updates_channel_chat_id():
     """
     /setchat must call channel.update_chat_id() so alerts immediately
@@ -142,6 +147,7 @@ def test_setchat_updates_channel_chat_id():
 
 # ─── /rmprobe — DB-only source of truth ──────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_rmprobe_removes_from_db():
     """Removing an endpoint must delete it from DB."""
@@ -150,6 +156,7 @@ async def test_rmprobe_removes_from_db():
 
     from opspilot.db.endpoints import add_endpoint, list_endpoints, remove_endpoint
     from opspilot.db.engine import init_db, set_db_path
+
     with tempfile.TemporaryDirectory() as tmpdir:
         set_db_path(pathlib.Path(tmpdir) / "test.db")
         await init_db()
@@ -165,6 +172,7 @@ async def test_rmprobe_removes_from_db():
 
 # ─── Auth middleware — FSM steps are protected ────────────────────────────────
 
+
 def test_auth_middleware_blocks_unauthorized():
     """
     Verify AccessController denies unknown users even in FSM mid-flow.
@@ -174,5 +182,5 @@ def test_auth_middleware_blocks_unauthorized():
 
     controller = AccessController(allowed_user_ids={999}, auth_mode="production")
     assert controller.is_authorized(999)
-    assert not controller.is_authorized(1234)   # stranger mid-FSM must be blocked
+    assert not controller.is_authorized(1234)  # stranger mid-FSM must be blocked
     assert not controller.is_authorized(0)

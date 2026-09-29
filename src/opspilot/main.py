@@ -1,4 +1,5 @@
 """OpsPilot 2.0 — main entry point."""
+
 import asyncio
 import logging
 
@@ -31,6 +32,7 @@ async def _migrate_ignored_json(ignored_manager: IgnoredContainersManager) -> No
         return
 
     import json
+
     try:
         with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -53,6 +55,7 @@ async def _migrate_ignored_json(ignored_manager: IgnoredContainersManager) -> No
         if expires_at_str:
             try:
                 from datetime import datetime
+
                 # Try parsing ISO format (may have +00:00 suffix from old code)
                 exp_dt = datetime.fromisoformat(expires_at_str)
                 if exp_dt.tzinfo is None:
@@ -105,6 +108,7 @@ async def run_daemon(config_path: str | None = None) -> None:
         return
 
     from aiogram import Bot
+
     bot_client = Bot(token=settings.telegram_bot_token)
     # Fix #1: construct channel with the DB-persisted (or config) chat_id
     channel = TelegramChannel(bot_client, alert_chat_id)
