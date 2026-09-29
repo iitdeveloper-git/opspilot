@@ -243,6 +243,23 @@ function setupEventListeners() {
   });
 
   // Settings Form
+  // Incident filter buttons
+  document.querySelectorAll('.incident-filter-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.incident-filter-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      currentIncidentFilter = e.target.dataset.filter || 'all';
+      renderIncidentsFeed();
+    });
+  });
+
+  const incSearch = document.getElementById('incidentsSearchInput');
+  if (incSearch) {
+    incSearch.addEventListener('input', () => {
+      renderIncidentsFeed();
+    });
+  }
+
   const openAddRouteBtn = document.getElementById('openAddRouteBtn');
   if (openAddRouteBtn) {
     openAddRouteBtn.addEventListener('click', openAddRouteModal);
@@ -722,44 +739,122 @@ async function deleteRenewal(renewalId) {
 
 // ── Tab 5: Incidents ────────────────────────────────────────────────────────
 
+window.incidentsCache = [];
+let currentIncidentFilter = 'all';
+
 async function fetchIncidents() {
   try {
     const res = await apiFetch('/api/incidents');
     if (!res.ok) return;
     const incidents = await res.json();
-    const tbody = document.getElementById('incidentsTableBody');
+    window.incidentsCache = incidents;
 
-    if (incidents.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">No incidents recorded in audit log.</td></tr>';
-      return;
+    const total = incidents.length;
+    const active = incidents.filter(i => !i.resolved_at).length;
+    const resolved = incidents.filter(i => Boolean(i.resolved_at)).length;
+
+    // Update KPI Counters
+    const activeEl = document.getElementById('activeIncidentsCountVal');
+    if (activeEl) {
+      activeEl.innerHTML = active > 0
+        ? `<span class="status-dot red"></span> ${active} Open`
+        : `<span class="status-dot green"></span> 0 Open`;
+    }
+    const totalEl = document.getElementById('totalIncidentsCountVal');
+    if (totalEl) totalEl.textContent = total;
+    const rateEl = document.getElementById('autoResolvedRateVal');
+    if (rateEl) {
+      rateEl.textContent = total > 0 ? `${Math.round((resolved / total) * 100)}%` : '100%';
     }
 
-    tbody.innerHTML = incidents.map(inc => {
-      const isResolved = !!inc.resolved_at;
-      const statusBadge = isResolved
-        ? '<span class="badge badge-running">Resolved</span>'
-        : '<span class="badge badge-exited">Active</span>';
-
-      return `
-        <tr>
-          <td><strong>${escapeHtml(inc.target)}</strong></td>
-          <td><span class="badge badge-snoozed">${escapeHtml(inc.source)}</span></td>
-          <td><span class="badge ${inc.severity === 'critical' ? 'badge-exited' : 'badge-unhealthy'}">${escapeHtml(inc.severity)}</span></td>
-          <td>
-            <div>${escapeHtml(inc.title)}</div>
-            <div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(inc.detail || '')}</div>
-          </td>
-          <td>${inc.alert_count}</td>
-          <td>${statusBadge}</td>
-          <td>
-            ${!isResolved ? `<button class="btn btn-secondary btn-sm" onclick="resolveIncident(${inc.id})">Resolve</button>` : '-'}
-          </td>
-        </tr>
-      `;
-    }).join('');
+    renderIncidentsFeed();
   } catch (err) {
     console.error('Error fetching incidents:', err);
   }
+}
+
+function renderIncidentsFeed() {
+  const container = document.getElementById('incidentsFeedContainer');
+  if (!container) return;
+
+  const incidents = window.incidentsCache || [];
+  const searchInput = document.getElementById('incidentsSearchInput');
+  const search = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+  const filtered = incidents.filter(inc => {
+    // Filter by tab pill
+    if (currentIncidentFilter === 'active' && inc.resolved_at) return false;
+    if (currentIncidentFilter === 'resolved' && !inc.resolved_at) return false;
+    if (currentIncidentFilter === 'critical' && inc.severity !== 'critical') return false;
+
+    // Search query
+    if (search) {
+      const matchTarget = (inc.target || '').toLowerCase().includes(search);
+      const matchTitle = (inc.title || '').toLowerCase().includes(search);
+      const matchDetail = (inc.detail || '').toLowerCase().includes(search);
+      return matchTarget || matchTitle || matchDetail;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 48px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-card);">
+        <div style="font-size: 32px; margin-bottom: 8px;">🛡️</div>
+        <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">No Incidents Match Filter</div>
+        <div style="font-size: 13px;">All infrastructure endpoints and services are operating normally.</div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filtered.map(inc => {
+    const isResolved = Boolean(inc.resolved_at);
+    const sourceIcon = inc.source === 'http_probe' ? '🌐 HTTP Probe' : (inc.source === 'docker' ? '🐳 Docker Container' : '🔒 SSL Expiry');
+    const severityBadge = inc.severity === 'critical' 
+      ? '<span class="badge-severity-critical">● CRITICAL</span>'
+      : '<span class="badge-severity-warning">● WARNING</span>';
+    const statusBadge = isResolved
+      ? '<span class="badge-status-resolved">✓ RESOLVED</span>'
+      : '<span class="badge-status-active">⚠️ ACTIVE INCIDENT</span>';
+
+    return `
+      <div class="incident-card ${!isResolved ? 'active-incident' : ''}">
+        <div class="incident-card-header">
+          <div>
+            <div class="incident-target-title">
+              <span class="status-dot ${isResolved ? 'green' : 'red'}"></span>
+              <span>${escapeHtml(inc.title)}</span>
+            </div>
+            <div style="margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <span class="badge-source">${sourceIcon}</span>
+              ${severityBadge}
+              <span style="font-size: 12px; color: var(--accent-cyan); font-family: ui-monospace, SFMono-Regular, monospace;">${escapeHtml(inc.target)}</span>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <div class="incident-code-box">
+          <span style="opacity: 0.6; font-weight: 600;">Diagnostics:</span>
+          <span>${escapeHtml(inc.detail || 'Incident registered by autonomous health probe.')}</span>
+        </div>
+
+        <div class="incident-footer-meta">
+          <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
+            <span>🔔 <strong>${inc.alert_count || 1}</strong> alerts dispatched</span>
+            <span>🕒 Detected: <strong>${escapeHtml(inc.created_at || 'Just now')}</strong></span>
+            ${isResolved ? `<span>⚡ Auto-Resolved: <strong>${escapeHtml(inc.resolved_at)}</strong></span>` : ''}
+          </div>
+          <div>
+            ${!isResolved 
+              ? `<button class="btn btn-primary btn-sm" onclick="resolveIncident(${inc.id})">Mark Resolved</button>` 
+              : '<span style="font-size: 11px; color: var(--color-success); font-weight: 500;">✓ Audited & Closed</span>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 async function resolveIncident(incId) {

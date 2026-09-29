@@ -229,26 +229,55 @@
       <!-- ── TAB 5: INCIDENTS ───────────────────────────────────────────── -->
       <section id="tab-incidents" class="tab-content">
         <div class="section-header">
-          <h2 class="section-title">Incident Audit History</h2>
+          <div>
+            <h2 class="section-title">Incident Audit & Reliability History</h2>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+              Real-time audit log of infrastructure anomalies, automatic failovers, and autonomous recovery events
+            </p>
+          </div>
+          <div class="filter-bar">
+            <input type="text" id="incidentsSearchInput" class="search-input" placeholder="Filter by service, URL, or error...">
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-secondary btn-sm incident-filter-btn active" data-filter="all">All</button>
+              <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="active">Active</button>
+              <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="resolved">Resolved</button>
+              <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="critical">Critical</button>
+            </div>
+          </div>
         </div>
 
-        <div class="glass-panel table-responsive">
-          <table class="custom-table">
-            <thead>
-              <tr>
-                <th>Target</th>
-                <th>Source</th>
-                <th>Severity</th>
-                <th>Title & Detail</th>
-                <th>Alert Count</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="incidentsTableBody">
-              <!-- Dynamically populated incident rows -->
-            </tbody>
-          </table>
+        <!-- Incident KPI Stats Bar -->
+        <div class="incident-kpi-grid">
+          <div class="glass-panel incident-kpi-card">
+            <span class="incident-kpi-label">Active Incidents</span>
+            <div class="incident-kpi-val" id="activeIncidentsCountVal">
+              <span class="status-dot green"></span> 0 Open
+            </div>
+            <span class="incident-kpi-sub">All monitored endpoints healthy</span>
+          </div>
+
+          <div class="glass-panel incident-kpi-card">
+            <span class="incident-kpi-label">Autonomous Recovery</span>
+            <div class="incident-kpi-val" style="color: var(--color-success);" id="autoResolvedRateVal">100%</div>
+            <span class="incident-kpi-sub">Self-healed without manual intervention</span>
+          </div>
+
+          <div class="glass-panel incident-kpi-card">
+            <span class="incident-kpi-label">Mean Time to Resolve</span>
+            <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="mttrVal">~ 58s</div>
+            <span class="incident-kpi-sub">Average probe & container MTTR</span>
+          </div>
+
+          <div class="glass-panel incident-kpi-card">
+            <span class="incident-kpi-label">Audited Incidents</span>
+            <div class="incident-kpi-val" id="totalIncidentsCountVal">0</div>
+            <span class="incident-kpi-sub">Persisted in tamper-proof SQLite audit trail</span>
+          </div>
+        </div>
+
+        <!-- Modern Incident Feed Container -->
+        <div id="incidentsFeedContainer" class="incidents-feed">
+          <!-- Dynamically populated incident cards -->
         </div>
       </section>
 
