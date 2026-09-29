@@ -11,6 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-RUN pip install --no-cache-dir -e ".[ai]"
+RUN pip install --no-cache-dir -e ".[ai,web]"
 
 CMD ["python", "-m", "opspilot.main"]

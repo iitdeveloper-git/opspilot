@@ -73,3 +73,10 @@ db_path: "data/opspilot.db"    # SQLite path relative to working directory
 #       due_date: "2027-03-15"
 #       amount: 1500
 #       recurrence: "yearly"
+
+# ─── Web Command Center (Optional, Disabled by Default) ───────────────────────
+web:
+  enabled: false                 # Set to true to enable the Web Command Center
+  host: "127.0.0.1"              # Strictly localhost (reverse-proxied via Caddy)
+  port: 8088                    # Internal port
+  # Requires OPSPILOT_ADMIN_PASSWORD in .env (min 12 chars)

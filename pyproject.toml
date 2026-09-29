@@ -40,6 +40,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "itsdangerous>=2.2.0",
+]
 ai = [
     "openai>=1.25.0",
     "anthropic>=0.25.0",

@@ -4,7 +4,7 @@ from opspilot.config import Settings, load_settings
 
 
 def test_default_settings():
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.auth_mode == "production"
     assert settings.automation.auto_prune_disk.enabled is False
     assert settings.environment == "production"

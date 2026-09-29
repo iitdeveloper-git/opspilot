@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpsPilot 2.0 — Autonomous Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- ── Login Screen (Active until authenticated) ────────────────────────── -->
+  <div id="loginScreen" class="login-screen">
+    <div class="glass-panel login-card">
+      <div class="login-logo">🚀</div>
+      <h2 style="font-size: 24px; margin-bottom: 6px;">OpsPilot <span class="gradient-text">2.0</span></h2>
+      <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 24px;">Autonomous Command Center</p>
+      
+      <form id="loginForm">
+        <div class="form-group">
+          <label class="form-label" for="adminPasswordInput">Administrator Password</label>
+          <input type="password" id="adminPasswordInput" class="form-input" placeholder="Enter master password..." autocomplete="current-password" required autofocus>
+        </div>
+        <div id="loginErrorMsg" style="color: var(--color-danger); font-size: 13px; margin-bottom: 14px; display: none;"></div>
+        <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 12px;">
+          <span>Authenticate Session</span> →
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Main Application ────────────────────────────────────────────────── -->
+  <div id="appContainer" style="display: none;">
+
+    <!-- Navbar -->
+    <header class="navbar">
+      <div class="brand-wrapper">
+        <div class="brand-logo">🚀</div>
+        <div class="brand-title">
+          OpsPilot <span class="gradient-text">2.0</span>
+          <span class="brand-badge">PROD</span>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <div class="server-badge">
+          <span class="status-dot green" id="globalStatusDot"></span>
+          <span>Host: <strong id="serverNameLabel">node-01</strong></span>
+        </div>
+        <button id="refreshTimerBtn" class="btn btn-secondary btn-sm" title="Click to pause/resume auto-refresh">
+          ⏱ <span id="refreshTimerCountdown">5s</span>
+        </button>
+        <button id="logoutBtn" class="btn btn-secondary btn-sm">Sign Out</button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs-container">
+      <nav class="nav-tabs">
+        <button class="tab-btn active" data-tab="overview">
+          ⚡ Overview
+        </button>
+        <button class="tab-btn" data-tab="fleet">
+          🐳 Fleet <span class="tab-badge" id="navFleetCount">36</span>
+        </button>
+        <button class="tab-btn" data-tab="probes">
+          🌐 Probes <span class="tab-badge" id="navProbesCount">9</span>
+        </button>
+        <button class="tab-btn" data-tab="renewals">
+          💳 Billing & Renewals <span class="tab-badge" id="navRenewalsCount">8</span>
+        </button>
+        <button class="tab-btn" data-tab="incidents">
+          🚨 Incidents <span class="tab-badge" id="navIncidentsCount">0</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Content Wrapper -->
+    <main class="content-wrapper">
+
+      <!-- ── TAB 1: OVERVIEW ─────────────────────────────────────────────── -->
+      <section id="tab-overview" class="tab-content active">
+        <div class="metrics-grid">
+          <!-- CPU Card -->
+          <div class="glass-panel metric-card">
+            <div class="metric-card-header">
+              <span class="metric-card-title">Processor Load</span>
+              <span class="metric-icon">⚡</span>
+            </div>
+            <div class="metric-value-row">
+              <span class="metric-main-value" id="cpuMetricVal">0%</span>
+              <span class="metric-sub-value" id="loadAvgVal">Load: 0.00, 0.00</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-emerald" id="cpuProgressBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- RAM Card -->
+          <div class="glass-panel metric-card">
+            <div class="metric-card-header">
+              <span class="metric-card-title">Memory Allocation</span>
+              <span class="metric-icon">🧠</span>
+            </div>
+            <div class="metric-value-row">
+              <span class="metric-main-value" id="ramMetricVal">0%</span>
+              <span class="metric-sub-value" id="ramUsedTotalVal">0 GB / 0 GB</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-indigo" id="ramProgressBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Disk Card -->
+          <div class="glass-panel metric-card">
+            <div class="metric-card-header">
+              <span class="metric-card-title">Primary Storage</span>
+              <span class="metric-icon">💾</span>
+            </div>
+            <div class="metric-value-row">
+              <span class="metric-main-value" id="diskMetricVal">0%</span>
+              <span class="metric-sub-value" id="diskFreeVal">Free: 0 GB</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-emerald" id="diskProgressBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Host Status Card -->
+          <div class="glass-panel metric-card">
+            <div class="metric-card-header">
+              <span class="metric-card-title">Host Health</span>
+              <span class="metric-icon">🛡</span>
+            </div>
+            <div class="metric-value-row">
+              <span class="metric-main-value" id="fleetHealthyRate">100%</span>
+              <span class="metric-sub-value" id="uptimeVal">Uptime: --</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-emerald" style="width: 100%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Summary Banner -->
+        <div class="glass-panel" style="padding: 24px; margin-bottom: 28px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+          <div>
+            <h3 style="font-size: 18px; margin-bottom: 4px;">IITDEVELOPER Production Fleet Status</h3>
+            <p style="color: var(--text-secondary); font-size: 14px;" id="fleetStatusSummaryText">
+              All services monitored autonomously. Zero open critical incidents.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary btn-sm" onclick="switchTab('fleet')">Inspect Fleet →</button>
+            <button class="btn btn-primary btn-sm" onclick="switchTab('probes')">Probe Endpoints →</button>
+          </div>
+        </div>
+
+        <!-- Recent Alerts / Incidents Section -->
+        <div class="section-header">
+          <h2 class="section-title">Active Alerts & Incidents</h2>
+        </div>
+        <div id="overviewIncidentsContainer" class="glass-panel" style="padding: 20px;">
+          <div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 24px 0;">
+            ✅ No active incidents. All systems are operating smoothly.
+          </div>
+        </div>
+      </section>
+
+      <!-- ── TAB 2: DOCKER FLEET ─────────────────────────────────────────── -->
+      <section id="tab-fleet" class="tab-content">
+        <div class="section-header">
+          <h2 class="section-title">
+            Docker Service Fleet
+            <span class="badge badge-running" id="fleetRunningBadge">36 RUNNING</span>
+          </h2>
+          <div class="filter-bar">
+            <input type="text" id="fleetSearchInput" class="search-input" placeholder="Filter containers (e.g. gns, iam, growixa)...">
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-secondary btn-sm fleet-filter-btn active" data-filter="all">All</button>
+              <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="running">Running</button>
+              <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="exited">Exited</button>
+              <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="snoozed">Snoozed</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="fleetCardsGrid" class="fleet-grid">
+          <!-- Dynamically generated container cards -->
+        </div>
+      </section>
+
+      <!-- ── TAB 3: PROBES ──────────────────────────────────────────────── -->
+      <section id="tab-probes" class="tab-content">
+        <div class="section-header">
+          <h2 class="section-title">HTTP Uptime Probes</h2>
+          <div class="filter-bar">
+            <button class="btn btn-primary btn-sm" id="openAddProbeBtn">+ Add HTTP Probe</button>
+          </div>
+        </div>
+
+        <div id="probesListContainer" class="probe-list">
+          <!-- Dynamically generated probes -->
+        </div>
+      </section>
+
+      <!-- ── TAB 4: RENEWALS & BILLING ───────────────────────────────────── -->
+      <section id="tab-renewals" class="tab-content">
+        <div class="section-header">
+          <h2 class="section-title">Renewals & Client Billing</h2>
+          <div class="filter-bar">
+            <button class="btn btn-primary btn-sm" id="openAddRenewalBtn">+ Add Renewal / Invoice</button>
+          </div>
+        </div>
+
+        <div id="renewalsGridContainer" class="renewals-grid">
+          <!-- Dynamically generated renewal cards -->
+        </div>
+      </section>
+
+      <!-- ── TAB 5: INCIDENTS ───────────────────────────────────────────── -->
+      <section id="tab-incidents" class="tab-content">
+        <div class="section-header">
+          <h2 class="section-title">Incident Audit History</h2>
+        </div>
+
+        <div class="glass-panel table-responsive">
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Target</th>
+                <th>Source</th>
+                <th>Severity</th>
+                <th>Title & Detail</th>
+                <th>Alert Count</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="incidentsTableBody">
+              <!-- Dynamically populated incident rows -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ── MODAL: Container Logs ────────────────────────────────────────────── -->
+  <div id="logsModal" class="modal-overlay">
+    <div class="modal-box modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 id="logsModalTitle" style="font-size: 18px;">Container Logs</h3>
+          <p id="logsModalSubtitle" style="color: var(--text-muted); font-size: 12px; font-family: monospace;">Fetching...</p>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="logsTailSelect" class="search-input" style="min-width: 100px; padding: 4px 10px; font-size: 12px;">
+            <option value="50">50 lines</option>
+            <option value="100" selected>100 lines</option>
+            <option value="200">200 lines</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" id="copyLogsBtn">📋 Copy</button>
+          <button class="modal-close" onclick="closeModal('logsModal')">&times;</button>
+        </div>
+      </div>
+      <div id="logsTerminalContent" class="terminal-window">Loading stdout/stderr stream...</div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Confirm Restart ──────────────────────────────────────────── -->
+  <div id="restartModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Confirm Container Restart</h3>
+        <button class="modal-close" onclick="closeModal('restartModal')">&times;</button>
+      </div>
+      <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+        Are you sure you want to restart container <strong id="restartContainerName" style="color: var(--text-primary);"></strong>?
+        This action will be recorded in the audit trail.
+      </p>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('restartModal')">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="confirmRestartBtn">Restart Container</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Snooze Container ─────────────────────────────────────────── -->
+  <div id="snoozeModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Snooze Alerts</h3>
+        <button class="modal-close" onclick="closeModal('snoozeModal')">&times;</button>
+      </div>
+      <p style="color: var(--text-secondary); margin-bottom: 18px; font-size: 14px;">
+        Silence health alerts for <strong id="snoozeContainerName" style="color: var(--text-primary);"></strong>:
+      </p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px;">
+        <button class="btn btn-secondary" onclick="submitSnooze('1h')">1 Hour</button>
+        <button class="btn btn-secondary" onclick="submitSnooze('6h')">6 Hours</button>
+        <button class="btn btn-secondary" onclick="submitSnooze('24h')">24 Hours</button>
+        <button class="btn btn-secondary" onclick="submitSnooze('forever')">Indefinitely</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Add Probe ────────────────────────────────────────────────── -->
+  <div id="addProbeModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Register HTTP Probe</h3>
+        <button class="modal-close" onclick="closeModal('addProbeModal')">&times;</button>
+      </div>
+      <form id="addProbeForm">
+        <div class="form-group">
+          <label class="form-label">Probe Friendly Name</label>
+          <input type="text" id="probeNameInput" class="form-input" placeholder="e.g. Pulsar IP Client" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">HTTP / HTTPS URL</label>
+          <input type="url" id="probeUrlInput" class="form-input" placeholder="https://example.com/health" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Expected Status</label>
+            <input type="number" id="probeExpectedStatusInput" class="form-input" value="200" required>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Timeout (seconds)</label>
+            <input type="number" id="probeTimeoutInput" class="form-input" value="5" min="1" max="30" required>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('addProbeModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save Probe</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Add Renewal ──────────────────────────────────────────────── -->
+  <div id="addRenewalModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Register Renewal / Client Billing</h3>
+        <button class="modal-close" onclick="closeModal('addRenewalModal')">&times;</button>
+      </div>
+      <form id="addRenewalForm">
+        <div class="form-group">
+          <label class="form-label">Title / Service Name</label>
+          <input type="text" id="renewalNameInput" class="form-input" placeholder="e.g. KnowledgeKingEdu Maintenance" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Category</label>
+            <select id="renewalCategoryInput" class="form-input">
+              <option value="client_billing">Client Billing</option>
+              <option value="vps">VPS / Cloud Hosting</option>
+              <option value="domain">Domain Registration</option>
+              <option value="saas">SaaS Tool</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Due Date (YYYY-MM-DD)</label>
+            <input type="date" id="renewalDueDateInput" class="form-input" required>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Amount (₹ INR)</label>
+            <input type="number" id="renewalAmountInput" class="form-input" placeholder="2500" step="any">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Recurrence</label>
+            <select id="renewalRecurrenceInput" class="form-input">
+              <option value="yearly">Yearly</option>
+              <option value="monthly">Monthly</option>
+              <option value="none">One-time (None)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <input type="text" id="renewalNotesInput" class="form-input" placeholder="Optional invoice notes or contact info...">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('addRenewalModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save Reminder</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Floating Toast Notifications -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

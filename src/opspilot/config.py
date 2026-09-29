@@ -1,9 +1,10 @@
 """OpsPilot 2.0 configuration — fully backward compatible."""
 
 from pathlib import Path
+from typing import Self
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,16 +70,32 @@ class AIConfig(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    environment: str = "production"
+    environment: str = Field(default="production", validation_alias=AliasChoices("environment", "opspilot_environment"))
     log_level: str = "INFO"
-    server_name: str = "node-01"
+    server_name: str = Field(default="node-01", validation_alias=AliasChoices("server_name", "opspilot_server_name"))
     server_timezone: str = "UTC"
-    auth_mode: str = "production"
-    db_path: str = "data/opspilot.db"
+    auth_mode: str = Field(default="production", validation_alias=AliasChoices("auth_mode", "opspilot_auth_mode"))
+    db_path: str = Field(default="data/opspilot.db", validation_alias=AliasChoices("db_path", "opspilot_db_path"))
 
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: str = ""
     telegram_alert_chat_id: str = ""
+
+    # Web Command Center (Disabled by default, 127.0.0.1 only)
+    web_enabled: bool = Field(default=False, validation_alias=AliasChoices("web_enabled", "opspilot_web_enabled"))
+    web_host: str = Field(default="127.0.0.1", validation_alias=AliasChoices("web_host", "opspilot_web_host"))
+    web_port: int = Field(default=8088, validation_alias=AliasChoices("web_port", "opspilot_web_port"))
+    admin_password: str = Field(default="", validation_alias=AliasChoices("admin_password", "opspilot_admin_password"))
+
+    @model_validator(mode="after")
+    def validate_web_security(self) -> Self:
+        if self.web_enabled:
+            pwd = self.admin_password.strip()
+            if not pwd:
+                raise ValueError("OPSPILOT_ADMIN_PASSWORD must be set when web_enabled=True.")
+            if len(pwd) < 12:
+                raise ValueError("OPSPILOT_ADMIN_PASSWORD must be at least 12 characters long for security.")
+        return self
 
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     automation: AutomationConfig = Field(default_factory=AutomationConfig)
@@ -112,4 +129,11 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
                 settings.ai = AIConfig(**yaml_data["ai"])
             if "db_path" in yaml_data:
                 settings.db_path = yaml_data["db_path"]
+            web_cfg = yaml_data.get("web", {})
+            if "enabled" in web_cfg:
+                settings.web_enabled = bool(web_cfg["enabled"])
+            if "host" in web_cfg:
+                settings.web_host = str(web_cfg["host"])
+            if "port" in web_cfg:
+                settings.web_port = int(web_cfg["port"])
     return settings

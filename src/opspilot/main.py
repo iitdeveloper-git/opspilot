@@ -101,10 +101,48 @@ async def run_daemon(config_path: str | None = None) -> None:
     ignored_manager = IgnoredContainersManager()
     await _migrate_ignored_json(ignored_manager)
 
+    # — Web Command Center (Isolated Task, Disabled by default)
+    web_server_task: asyncio.Task | None = None
+    if settings.web_enabled:
+        try:
+            import uvicorn
+
+            from opspilot.web.app import create_web_app
+
+            web_app = create_web_app(settings)
+            web_cfg = uvicorn.Config(
+                app=web_app,
+                host=settings.web_host,
+                port=settings.web_port,
+                log_level="warning",
+                access_log=False,
+            )
+            server = uvicorn.Server(web_cfg)
+
+            async def _run_web_isolated() -> None:
+                try:
+                    logger.info(f"Web Command Center listening at http://{settings.web_host}:{settings.web_port}")
+                    await server.serve()
+                except Exception as exc:
+                    logger.error(f"Web server encountered an error: {exc}", exc_info=True)
+
+            web_server_task = asyncio.create_task(_run_web_isolated())
+        except ImportError as e:
+            logger.warning(
+                f"Web Command Center enabled, but dependencies missing ({e}). Install with: pip install 'opspilot[web]'"
+            )
+
     if not settings.telegram_bot_token:
         logger.warning("No TELEGRAM_BOT_TOKEN set. Running in headless monitoring mode.")
         scheduler = BackgroundScheduler(settings)
-        await scheduler.start()
+        if web_server_task:
+            try:
+                await asyncio.gather(scheduler.start(), web_server_task)
+            finally:
+                await scheduler.stop()
+                web_server_task.cancel()
+        else:
+            await scheduler.start()
         return
 
     from aiogram import Bot
@@ -122,6 +160,8 @@ async def run_daemon(config_path: str | None = None) -> None:
     finally:
         await scheduler.stop()
         scheduler_task.cancel()
+        if web_server_task:
+            web_server_task.cancel()
         await bot_client.session.close()
 
 
