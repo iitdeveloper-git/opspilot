@@ -10,6 +10,8 @@ let activeSnoozeContainer = '';
 let autoRefreshPaused = false;
 let refreshCountdown = 5;
 let timerInterval = null;
+let cachedContainers = [];
+let cachedProbes = [];
 
 // ── Authentication & Boot ───────────────────────────────────────────────────
 
@@ -69,13 +71,17 @@ function setupEventListeners() {
   // Login Form
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const password = document.getElementById('adminPasswordInput').value;
+    const pwdInput = document.getElementById('adminPasswordInput');
+    const password = pwdInput.value;
     const errBox = document.getElementById('loginErrorMsg');
+    const errText = document.getElementById('loginErrorText') || errBox;
     const submitBtn = document.getElementById('loginSubmitBtn');
+    const loginCard = document.querySelector('.login-card');
 
     errBox.style.display = 'none';
+    pwdInput.classList.remove('is-invalid');
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Verifying...';
+    submitBtn.textContent = 'Verifying credentials...';
 
     try {
       const res = await fetch('/api/auth/login', {
@@ -92,12 +98,29 @@ function setupEventListeners() {
         startAutoRefresh();
         refreshAll();
       } else {
-        errBox.textContent = data.detail || 'Authentication failed.';
-        errBox.style.display = 'block';
+        const errorMsg = data.detail || 'Invalid administrator password.';
+        errText.textContent = errorMsg;
+        errBox.style.display = 'flex';
+        pwdInput.classList.add('is-invalid');
+        pwdInput.focus();
+        pwdInput.select();
+
+        // Trigger haptic shake animation on login card
+        if (loginCard) {
+          loginCard.classList.remove('shake');
+          void loginCard.offsetWidth; // Force CSS reflow
+          loginCard.classList.add('shake');
+        }
+
+        // Trigger floating error toast
+        showToast(errorMsg, 'error');
       }
     } catch (err) {
-      errBox.textContent = 'Connection error. Please try again.';
-      errBox.style.display = 'block';
+      const errorMsg = 'Connection error. Unable to reach OpsPilot server.';
+      errText.textContent = errorMsg;
+      errBox.style.display = 'flex';
+      pwdInput.classList.add('is-invalid');
+      showToast(errorMsg, 'error');
     } finally {
       submitBtn.disabled = false;
       submitBtn.innerHTML = '<span>Authenticate Session</span> →';
@@ -135,7 +158,7 @@ function setupEventListeners() {
   });
 
   // Fleet Filter & Search
-  document.getElementById('fleetSearchInput').addEventListener('input', filterFleetGrid);
+  document.getElementById('fleetSearchInput')?.addEventListener('input', filterFleetGrid);
   document.querySelectorAll('.fleet-filter-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.fleet-filter-btn').forEach(b => b.classList.remove('active'));
@@ -144,9 +167,78 @@ function setupEventListeners() {
     });
   });
 
+  // Probe Filter & Search
+  document.getElementById('probesSearchInput')?.addEventListener('input', filterProbesGrid);
+  document.querySelectorAll('.probe-filter-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.probe-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterProbesGrid();
+    });
+  });
+
+  // Renewal Filter & Search
+  document.getElementById('renewalsSearchInput')?.addEventListener('input', filterRenewalsGrid);
+  document.querySelectorAll('.renewal-filter-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.renewal-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterRenewalsGrid();
+    });
+  });
+
   // Modal Triggers
-  document.getElementById('openAddProbeBtn').addEventListener('click', () => openModal('addProbeModal'));
-  document.getElementById('openAddRenewalBtn').addEventListener('click', () => openModal('addRenewalModal'));
+  document.getElementById('openAddProbeBtn')?.addEventListener('click', () => openModal('addProbeModal'));
+  document.getElementById('openAddRenewalBtn')?.addEventListener('click', () => openModal('addRenewalModal'));
+  document.getElementById('openAddDomainBtn')?.addEventListener('click', () => openModal('addDomainModal'));
+
+  // Add Domain Form
+  document.getElementById('addDomainForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const domain = document.getElementById('domainNameInput')?.value.trim();
+    const port = parseInt(document.getElementById('domainPortInput')?.value) || 443;
+    const submitBtn = document.getElementById('addDomainSubmitBtn');
+
+    if (!domain) return;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Probing SSL Certificate...';
+    }
+
+    try {
+      const res = await apiFetch('/api/domains', {
+        method: 'POST',
+        body: JSON.stringify({ domain, port })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message, 'success');
+        closeModal('addDomainModal');
+        document.getElementById('addDomainForm')?.reset();
+        fetchDomains();
+        fetchOverview();
+      } else {
+        showToast(data.detail || 'Could not probe domain.', 'error');
+      }
+    } catch (err) {
+      showToast('Network error adding domain tracker.', 'error');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Probe & Track Certificate';
+      }
+    }
+  });
+
+  // Domains Filter & Search
+  document.getElementById('domainsSearchInput')?.addEventListener('input', filterDomainsGrid);
+  document.querySelectorAll('.domain-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.domain-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterDomainsGrid();
+    });
+  });
 
   // Add Probe Form
   document.getElementById('addProbeForm').addEventListener('submit', async (e) => {
@@ -166,10 +258,10 @@ function setupEventListeners() {
         document.getElementById('addProbeForm').reset();
         fetchProbes();
       } else {
-        showToast(data.detail || 'Failed to add probe.', 'error');
+        showToast(data.detail || 'Failed to add service health check.', 'error');
       }
     } catch (err) {
-      showToast('Network error adding probe.', 'error');
+      showToast('Network error adding service health check.', 'error');
     }
   });
 
@@ -269,24 +361,343 @@ function setupEventListeners() {
     routeForm.addEventListener('submit', handleRouteFormSubmit);
   }
 
-  document.getElementById('settingsForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const alertChatId = document.getElementById('settingAlertChatId').value.trim();
-    try {
-      const res = await apiFetch('/api/settings', {
-        method: 'POST',
-        body: JSON.stringify({ alert_chat_id: alertChatId })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showToast(data.message || 'Settings saved successfully!', 'success');
-      } else {
-        showToast(data.detail || 'Failed to update settings.', 'error');
+  const settingsForm = document.getElementById('settingsForm');
+  if (settingsForm) {
+    settingsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const alertChatId = document.getElementById('settingAlertChatId').value.trim();
+      try {
+        const res = await apiFetch('/api/settings', {
+          method: 'POST',
+          body: JSON.stringify({ alert_chat_id: alertChatId })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || 'Settings saved successfully!', 'success');
+        } else {
+          showToast(data.detail || 'Failed to update settings.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error updating settings.', 'error');
       }
-    } catch (err) {
-      showToast('Network error updating settings.', 'error');
+    });
+  }
+
+  // ── AI Engine Settings Form & Dynamic Discovery Controls ───────────────────
+  const aiProviderSel = document.getElementById('aiProviderSelect');
+  if (aiProviderSel) {
+    aiProviderSel.addEventListener('change', (e) => {
+      aiSettingsUserInteracted = true;
+      const selected = e.target.value;
+      const keyInp = document.getElementById('aiApiKeyInput');
+      const baseUrlInp = document.getElementById('aiBaseUrlInput');
+      const hintEl = document.getElementById('aiProviderHint');
+
+      if (hintEl) {
+        if (selected === 'gemini') {
+          hintEl.textContent = 'Native direct Google Gemini API (gemini-1.5-flash, gemini-1.5-pro, etc.).';
+        } else if (selected === 'openai') {
+          hintEl.textContent = 'Direct OpenAI API (GPT-4o, GPT-4o-mini, o3-mini, o1).';
+        } else if (selected === 'anthropic') {
+          hintEl.textContent = 'Anthropic Claude API (Claude 3.5 Sonnet, Claude 3.5 Haiku).';
+        } else if (selected === 'ollama') {
+          hintEl.textContent = 'Self-hosted local LLM via Ollama or private OpenAI-compatible endpoint.';
+        }
+      }
+
+      if (keyInp) {
+        if (selected === 'gemini') {
+          keyInp.placeholder = 'AIzaSy... (Google AI Studio Key)';
+        } else if (selected === 'openai') {
+          keyInp.placeholder = 'sk-proj-... (OpenAI API Key)';
+        } else if (selected === 'anthropic') {
+          keyInp.placeholder = 'sk-ant-... (Anthropic API Key)';
+        } else if (selected === 'ollama') {
+          keyInp.placeholder = 'Optional / Not required for Ollama';
+        }
+      }
+
+      if (baseUrlInp && selected === 'ollama' && !baseUrlInp.value) {
+        baseUrlInp.value = 'http://localhost:11434';
+      }
+
+      // Populate presets or cached models for new provider
+      populateAiModelSelect(selected, null);
+
+      const banner = document.getElementById('aiTestResultBanner');
+      if (banner) banner.style.display = 'none';
+    });
+  }
+
+  // Model Select Change Handler
+  const aiModelSel = document.getElementById('aiModelSelect');
+  if (aiModelSel) {
+    aiModelSel.addEventListener('change', (e) => {
+      aiSettingsUserInteracted = true;
+      const val = e.target.value;
+      const customWrap = document.getElementById('aiCustomModelWrap');
+      const customInp = document.getElementById('aiModelCustomInput');
+      const legacyInp = document.getElementById('aiModelInput');
+
+      if (val === 'custom') {
+        if (customWrap) customWrap.style.display = 'block';
+        if (customInp) {
+          customInp.focus();
+          if (legacyInp) legacyInp.value = customInp.value.trim();
+        }
+      } else {
+        if (customWrap) customWrap.style.display = 'none';
+        if (legacyInp) legacyInp.value = val;
+      }
+
+      // Update preset chip active styling
+      const presetsWrap = document.getElementById('aiModelPresets');
+      if (presetsWrap) {
+        presetsWrap.querySelectorAll('.ai-preset-chip').forEach(chip => {
+          chip.classList.toggle('active', chip.textContent === val);
+        });
+      }
+    });
+  }
+
+  // Custom Model Input Handler
+  const aiModelCustomInp = document.getElementById('aiModelCustomInput');
+  if (aiModelCustomInp) {
+    aiModelCustomInp.addEventListener('input', (e) => {
+      aiSettingsUserInteracted = true;
+      const legacyInp = document.getElementById('aiModelInput');
+      if (legacyInp) legacyInp.value = e.target.value.trim();
+    });
+  }
+
+  // Track user typing in key or base URL
+  ['aiApiKeyInput', 'aiBaseUrlInput'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', () => { aiSettingsUserInteracted = true; });
     }
   });
+
+  // Toggle API Key visibility
+  const toggleKeyBtn = document.getElementById('toggleAiKeyVisibilityBtn');
+  if (toggleKeyBtn) {
+    toggleKeyBtn.addEventListener('click', () => {
+      const keyInp = document.getElementById('aiApiKeyInput');
+      if (!keyInp) return;
+      if (keyInp.type === 'password') {
+        keyInp.type = 'text';
+        toggleKeyBtn.textContent = '🙈';
+      } else {
+        keyInp.type = 'password';
+        toggleKeyBtn.textContent = '👁️';
+      }
+    });
+  }
+
+  // ── "⚡ Test Key & Fetch Models" Action ─────────────────────────────────────
+  const fetchModelsBtn = document.getElementById('fetchAiModelsBtn');
+  if (fetchModelsBtn) {
+    fetchModelsBtn.addEventListener('click', async () => {
+      aiSettingsUserInteracted = true;
+      const provider = document.getElementById('aiProviderSelect').value;
+      const apiKey = document.getElementById('aiApiKeyInput').value.trim();
+      const baseUrl = document.getElementById('aiBaseUrlInput').value.trim();
+      const banner = document.getElementById('aiTestResultBanner');
+
+      fetchModelsBtn.disabled = true;
+      fetchModelsBtn.textContent = '⚡ Querying Models...';
+
+      if (banner) {
+        banner.style.display = 'block';
+        banner.className = 'ai-test-banner loading';
+        banner.innerHTML = `<strong>🔄 Connecting to ${escapeHtml(provider.toUpperCase())} API...</strong><br><span style="font-size: 12px; opacity: 0.85;">Authenticating credentials and fetching available model catalog...</span>`;
+      }
+
+      try {
+        const res = await apiFetch('/api/ai/models', {
+          method: 'POST',
+          body: JSON.stringify({
+            provider,
+            api_key: apiKey,
+            base_url: baseUrl,
+          }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          populateAiModelSelect(provider, data.default_model, data.models);
+
+          if (banner) {
+            banner.className = 'ai-test-banner success';
+            banner.innerHTML = `
+              <strong>✅ Key Verified & Connected (${data.latency_ms}ms)</strong><br>
+              ${escapeHtml(data.message)}<br>
+              <div style="margin-top: 6px; font-size: 12px; opacity: 0.9;">
+                Loaded <strong>${data.count} models</strong> into the dropdown below. Select any model to use.
+              </div>
+            `;
+          }
+          showToast(`Discovered ${data.count} models from ${provider.toUpperCase()}!`, 'success');
+        } else {
+          const detail = data.detail || 'Failed to authenticate or fetch models from provider.';
+          if (banner) {
+            banner.className = 'ai-test-banner error';
+            banner.innerHTML = `
+              <strong>❌ Verification Failed${data.latency_ms ? ` (${data.latency_ms}ms)` : ''}</strong><br>
+              ${escapeHtml(detail)}
+            `;
+          }
+          showToast('Failed to verify API key or fetch models.', 'error');
+        }
+      } catch (err) {
+        if (banner) {
+          banner.className = 'ai-test-banner error';
+          banner.innerHTML = `<strong>❌ Network Error</strong><br>Failed to reach OpsPilot backend API.`;
+        }
+        showToast('Network error during model discovery.', 'error');
+      } finally {
+        fetchModelsBtn.disabled = false;
+        fetchModelsBtn.textContent = '⚡ Test Key & Fetch Models';
+      }
+    });
+  }
+
+  // ── Save AI Settings ───────────────────────────────────────────────────────
+  const aiSettingsForm = document.getElementById('aiSettingsForm');
+  if (aiSettingsForm) {
+    aiSettingsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const saveBtn = document.getElementById('saveAiSettingsBtn');
+      const provider = document.getElementById('aiProviderSelect').value;
+      const modelSel = document.getElementById('aiModelSelect');
+      const customInp = document.getElementById('aiModelCustomInput');
+      const apiKey = document.getElementById('aiApiKeyInput').value.trim();
+      const baseUrl = document.getElementById('aiBaseUrlInput').value.trim();
+      const enabled = document.getElementById('aiEnabledCheckbox').checked;
+
+      let model = modelSel ? modelSel.value : '';
+      if (model === 'custom' && customInp) {
+        model = customInp.value.trim();
+      }
+      if (!model) {
+        model = document.getElementById('aiModelInput').value.trim();
+      }
+
+      if (!model) {
+        showToast('Please choose or enter a model identifier.', 'error');
+        return;
+      }
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+
+      try {
+        const res = await apiFetch('/api/settings/ai', {
+          method: 'POST',
+          body: JSON.stringify({
+            provider,
+            model,
+            api_key: apiKey,
+            base_url: baseUrl,
+            enabled,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || 'AI configuration saved successfully!', 'success');
+          aiSettingsUserInteracted = false;
+          const keyInp = document.getElementById('aiApiKeyInput');
+          if (keyInp) {
+            keyInp.value = '';
+            keyInp.type = 'password';
+            if (toggleKeyBtn) toggleKeyBtn.textContent = '👁️';
+          }
+          await fetchSettings();
+        } else {
+          showToast(data.detail || 'Failed to save AI configuration.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error saving AI configuration.', 'error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Save AI Configuration';
+      }
+    });
+  }
+
+  // ── "💬 Test Copilot Prompt" Action ────────────────────────────────────────
+  const testAiBtn = document.getElementById('testAiConnectionBtn');
+  if (testAiBtn) {
+    testAiBtn.addEventListener('click', async () => {
+      const banner = document.getElementById('aiTestResultBanner');
+      const provider = document.getElementById('aiProviderSelect').value;
+      const modelSel = document.getElementById('aiModelSelect');
+      const customInp = document.getElementById('aiModelCustomInput');
+      const apiKey = document.getElementById('aiApiKeyInput').value.trim();
+      const baseUrl = document.getElementById('aiBaseUrlInput').value.trim();
+
+      let model = modelSel ? modelSel.value : '';
+      if (model === 'custom' && customInp) {
+        model = customInp.value.trim();
+      }
+      if (!model) {
+        model = document.getElementById('aiModelInput').value.trim() || 'gemini-1.5-flash';
+      }
+
+      testAiBtn.disabled = true;
+      testAiBtn.textContent = '💬 Prompting...';
+      if (banner) {
+        banner.style.display = 'block';
+        banner.className = 'ai-test-banner loading';
+        banner.innerHTML = `<strong>🔄 Pinging ${escapeHtml(provider.toUpperCase())} (${escapeHtml(model)})...</strong><br><span style="font-size: 12px; opacity: 0.85;">Sending healthcheck probe prompt...</span>`;
+      }
+
+      try {
+        const res = await apiFetch('/api/ai/test', {
+          method: 'POST',
+          body: JSON.stringify({
+            provider,
+            model,
+            api_key: apiKey,
+            base_url: baseUrl,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (banner) {
+            banner.className = 'ai-test-banner success';
+            banner.innerHTML = `
+              <strong>✅ Inference Successful (${data.latency_ms}ms)</strong><br>
+              ${escapeHtml(data.message)}<br>
+              <div style="margin-top: 6px; font-size: 12px; opacity: 0.9; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.12); padding: 4px 8px; border-radius: 4px;">
+                LLM response: "${escapeHtml(data.response || 'OpsPilot AI Online')}"
+              </div>
+            `;
+          }
+          showToast(`AI Inference Verified (${data.latency_ms}ms)!`, 'success');
+        } else {
+          const detail = data.detail || (data.message ? `${data.message}: ${data.response || ''}` : 'Connection failed');
+          if (banner) {
+            banner.className = 'ai-test-banner error';
+            banner.innerHTML = `
+              <strong>❌ Inference Failed${data.latency_ms ? ` (${data.latency_ms}ms)` : ''}</strong><br>
+              ${escapeHtml(detail)}
+            `;
+          }
+          showToast('AI Prompt Test Failed', 'error');
+        }
+      } catch (err) {
+        if (banner) {
+          banner.className = 'ai-test-banner error';
+          banner.innerHTML = `<strong>❌ Network Error</strong><br>Failed to reach OpsPilot API endpoint.`;
+        }
+        showToast('Network error during AI test.', 'error');
+      } finally {
+        testAiBtn.disabled = false;
+        testAiBtn.textContent = '💬 Test Copilot Prompt';
+      }
+    });
+  }
 
   // Log Tail Select Change
   document.getElementById('logsTailSelect').addEventListener('change', (e) => {
@@ -326,23 +737,453 @@ function setupEventListeners() {
       btn.textContent = 'Restart Container';
     }
   });
+
+  // ── Sendrin-Style Sidebar & Navigation Interactivity ──────────────────────
+
+  const sidebar = document.getElementById('appSidebar');
+  const mainLayout = document.getElementById('mainLayoutArea');
+  const collapseBtn = document.getElementById('sidebarCollapseBtn');
+  const topToggleBtn = document.getElementById('topSidebarToggleBtn');
+  const brandLink = document.getElementById('sidebarBrandLink');
+
+  function setSidebarCollapsed(collapsed) {
+    if (!sidebar || !mainLayout) return;
+    sidebar.classList.toggle('collapsed', collapsed);
+    mainLayout.classList.toggle('sidebar-collapsed', collapsed);
+    if (collapseBtn) {
+      collapseBtn.textContent = collapsed ? '»' : '«';
+      collapseBtn.title = collapsed ? 'Expand Sidebar (⌘B)' : 'Collapse Sidebar (⌘B)';
+    }
+    localStorage.setItem('opspilot_sidebar_collapsed', collapsed ? 'true' : 'false');
+  }
+
+  const isCollapsed = localStorage.getItem('opspilot_sidebar_collapsed') === 'true';
+  setSidebarCollapsed(isCollapsed);
+
+  // Sidebar Collapse / Expand Toggle Buttons
+  collapseBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
+  });
+
+  topToggleBtn?.addEventListener('click', () => {
+    setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
+  });
+
+  brandLink?.addEventListener('click', (e) => {
+    if (sidebar?.classList.contains('collapsed')) {
+      e.preventDefault();
+      setSidebarCollapsed(false);
+    }
+  });
+
+  // Global Keyboard Shortcut (⌘B / Ctrl+B)
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      setSidebarCollapsed(!sidebar?.classList.contains('collapsed'));
+    }
+  });
+
+  // Mobile Menu & Backdrop Drawer
+  const mobileBtn = document.getElementById('mobileMenuBtn');
+  const mobileBackdrop = document.getElementById('mobileBackdrop');
+  mobileBtn?.addEventListener('click', () => {
+    sidebar?.classList.toggle('open');
+    mobileBackdrop?.classList.toggle('active');
+  });
+  mobileBackdrop?.addEventListener('click', () => {
+    sidebar?.classList.remove('open');
+    mobileBackdrop?.classList.remove('active');
+  });
+
+  // Manual Sync Now Button
+  document.getElementById('manualSyncBtn')?.addEventListener('click', () => {
+    const btn = document.getElementById('manualSyncBtn');
+    if (btn) {
+      btn.style.transform = 'rotate(180deg)';
+      setTimeout(() => { btn.style.transform = ''; }, 450);
+    }
+    refreshAll();
+    showToast('Synchronized with host telemetry.', 'info');
+  });
+
+  // Global Quick Search (⌘K / Ctrl+K)
+  const globalSearch = document.getElementById('globalQuickSearch');
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      globalSearch?.focus();
+    }
+  });
+  globalSearch?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase().trim();
+    if (currentTab === 'fleet') {
+      const el = document.getElementById('fleetSearchInput');
+      if (el) { el.value = q; filterFleetGrid(); }
+    } else if (currentTab === 'incidents') {
+      const el = document.getElementById('incidentsSearchInput');
+      if (el) { el.value = q; renderIncidentsFeed(); }
+    } else if (currentTab === 'overview' && q.length > 0) {
+      switchTab('fleet');
+      const el = document.getElementById('fleetSearchInput');
+      if (el) { el.value = q; filterFleetGrid(); }
+    }
+  });
+
+  // One-Click Docker Prune
+  const handleDockerPrune = async () => {
+    if (!confirm('Are you sure you want to prune unused Docker build caches and stopped containers?')) return;
+    try {
+      const res = await apiFetch('/api/docker/prune', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message || 'Pruned Docker cache successfully!', 'success');
+        refreshAll();
+      } else {
+        showToast(data.detail || 'Docker prune failed.', 'error');
+      }
+    } catch (err) {
+      showToast('Error executing Docker prune.', 'error');
+    }
+  };
+  document.getElementById('quickDockerPruneBtn')?.addEventListener('click', handleDockerPrune);
+
+  // AI RCA Diagnostics Modal Triggers & Smart Auto-Pick
+  async function ensureAiDiagDataLoaded() {
+    if (!cachedContainers || cachedContainers.length === 0) {
+      try {
+        const res = await apiFetch('/api/containers');
+        if (res.ok) cachedContainers = await res.json();
+      } catch (err) {
+        console.error('Error loading containers for RCA:', err);
+      }
+    }
+    if (!cachedProbes || cachedProbes.length === 0) {
+      try {
+        const res = await apiFetch('/api/probes');
+        if (res.ok) cachedProbes = await res.json();
+      } catch (err) {
+        console.error('Error loading probes for RCA:', err);
+      }
+    }
+  }
+
+  function renderAiDiagSelectors(filterQuery = '', selectedTarget = '') {
+    const select = document.getElementById('aiDiagServiceSelect');
+    const chipsBox = document.getElementById('aiDiagQuickChips');
+    if (!select) return;
+
+    const q = (filterQuery || '').toLowerCase().trim();
+    const containers = cachedContainers || [];
+    const probes = cachedProbes || [];
+    const incidents = window.incidentsCache || [];
+
+    // 1. Build Quick Chips: Prioritize Unhealthy / Exited / Alerting Workloads
+    if (chipsBox) {
+      const candidates = [];
+      incidents.filter(i => !i.resolved_at).forEach(i => {
+        if (!candidates.some(c => c.name === i.target)) {
+          candidates.push({ name: i.target, label: `⚠️ ${i.target}`, status: i.severity || 'alerting' });
+        }
+      });
+      containers.filter(c => c.status === 'exited' || c.health === 'unhealthy' || c.status === 'restarting').forEach(c => {
+        if (!candidates.some(item => item.name === c.name)) {
+          candidates.push({ name: c.name, label: `⚠️ ${c.name} (${c.health !== 'none' ? c.health : c.status})`, status: c.status });
+        }
+      });
+      containers.filter(c => c.status === 'running' && c.health !== 'unhealthy').slice(0, 4).forEach(c => {
+        if (!candidates.some(item => item.name === c.name)) {
+          candidates.push({ name: c.name, label: `🐳 ${c.name}`, status: 'running' });
+        }
+      });
+
+      chipsBox.innerHTML = candidates.map(c => `
+        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 3px 8px; border-radius: 12px;" onclick="window.selectAiDiagTarget('${escapeHtml(c.name)}', '${escapeHtml(c.status)}')">
+          ${escapeHtml(c.label)}
+        </button>
+      `).join('');
+    }
+
+    // 2. Filter Containers and Probes for Dropdown
+    const matchingContainers = containers.filter(c => !q || c.name.toLowerCase().includes(q) || (c.image || '').toLowerCase().includes(q));
+    const matchingProbes = probes.filter(p => !q || (p.name || '').toLowerCase().includes(q) || (p.url || '').toLowerCase().includes(q));
+
+    let optionsHtml = '<option value="">-- Choose Workload, Container, or Endpoint --</option>';
+
+    if (matchingContainers.length > 0) {
+      optionsHtml += `<optgroup label="🐳 Docker Containers & Pods (${matchingContainers.length})">` +
+        matchingContainers.map(c => {
+          const isSelected = selectedTarget && selectedTarget === c.name ? 'selected' : '';
+          const healthBadge = c.health !== 'none' ? ` [${c.health}]` : '';
+          return `<option value="${escapeHtml(c.name)}" ${isSelected}>${escapeHtml(c.name)} (${c.status}${healthBadge})</option>`;
+        }).join('') + `</optgroup>`;
+    }
+
+    if (matchingProbes.length > 0) {
+      optionsHtml += `<optgroup label="🌐 Probes & Web Services (${matchingProbes.length})">` +
+        matchingProbes.map(p => {
+          const isSelected = selectedTarget && selectedTarget === p.name ? 'selected' : '';
+          const statusText = p.is_healthy ? 'ONLINE' : `DOWN (${p.status_code || 0})`;
+          return `<option value="${escapeHtml(p.name)}" ${isSelected}>${escapeHtml(p.name)} (${statusText})</option>`;
+        }).join('') + `</optgroup>`;
+    }
+
+    if (selectedTarget && !matchingContainers.some(c => c.name === selectedTarget) && !matchingProbes.some(p => p.name === selectedTarget)) {
+      optionsHtml = `<option value="${escapeHtml(selectedTarget)}" selected>⭐ ${escapeHtml(selectedTarget)} (Target Workload)</option>` + optionsHtml;
+    }
+
+    select.innerHTML = optionsHtml;
+  }
+
+  async function selectAiDiagTarget(targetName, explicitStatus = '', explicitLogs = '') {
+    if (!targetName) return;
+    const select = document.getElementById('aiDiagServiceSelect');
+    const statusInput = document.getElementById('aiDiagStatusInput');
+    const logsBox = document.getElementById('aiDiagLogsInput');
+    const statusBadge = document.getElementById('aiDiagStatusBadge');
+    const statusMsg = document.getElementById('aiDiagLogStatusMsg');
+
+    if (select) {
+      if (!Array.from(select.options).some(o => o.value === targetName)) {
+        const newOpt = new Option(`⭐ ${targetName}`, targetName, true, true);
+        select.add(newOpt);
+      }
+      select.value = targetName;
+    }
+
+    let status = explicitStatus;
+    const c = (cachedContainers || []).find(item => item.name === targetName);
+    const p = (cachedProbes || []).find(item => item.name === targetName);
+
+    if (!status) {
+      if (c) {
+        status = c.health !== 'none' ? `${c.status} (${c.health})` : c.status;
+      } else if (p) {
+        status = p.is_healthy ? 'healthy' : `failing (HTTP ${p.status_code || 0})`;
+      } else {
+        status = 'active';
+      }
+    }
+
+    if (statusInput) statusInput.value = status;
+    if (statusBadge) {
+      statusBadge.style.display = 'inline-block';
+      statusBadge.textContent = status;
+      statusBadge.className = `badge ${status.includes('unhealthy') || status.includes('exited') || status.includes('fail') ? 'badge-unhealthy' : 'badge-running'}`;
+    }
+
+    if (explicitLogs) {
+      if (logsBox) logsBox.value = explicitLogs;
+      if (statusMsg) statusMsg.textContent = '✓ Incident details populated';
+      return;
+    }
+
+    if (c) {
+      if (statusMsg) statusMsg.textContent = '🔄 Auto-pulling tail logs...';
+      try {
+        const res = await apiFetch(`/api/containers/${targetName}/logs?tail=100`);
+        if (res.ok) {
+          const logData = await res.json();
+          if (logsBox) logsBox.value = logData.logs || '(No recent logs recorded for this container)';
+          if (statusMsg) statusMsg.textContent = '✓ 100 log lines retrieved';
+        }
+      } catch (err) {
+        if (statusMsg) statusMsg.textContent = '⚠ Could not pull logs';
+      }
+    } else {
+      const inc = (window.incidentsCache || []).find(i => i.target === targetName && !i.resolved_at);
+      if (inc && logsBox) {
+        logsBox.value = `[INCIDENT CONTEXT] Target: ${inc.target}\nTitle: ${inc.title}\nDetail: ${inc.detail || 'None'}\nAlert Count: ${inc.alert_count}\nDetected: ${inc.created_at}`;
+        if (statusMsg) statusMsg.textContent = '✓ Incident telemetry populated';
+      } else if (logsBox && !logsBox.value) {
+        logsBox.placeholder = 'Paste logs or stack trace for this workload...';
+      }
+    }
+  }
+  window.selectAiDiagTarget = selectAiDiagTarget;
+
+  const openAiModal = async (targetName = '', targetStatus = '', initialLogs = '') => {
+    openModal('aiDiagModal');
+    const resBox = document.getElementById('aiDiagResultContainer');
+    if (resBox) resBox.style.display = 'none';
+
+    const searchInput = document.getElementById('aiDiagSearchInput');
+    if (searchInput) searchInput.value = '';
+
+    await ensureAiDiagDataLoaded();
+
+    let target = targetName;
+    if (!target) {
+      const activeInc = (window.incidentsCache || []).find(i => !i.resolved_at);
+      const degraded = (cachedContainers || []).find(c => c.status === 'exited' || c.health === 'unhealthy');
+      if (activeInc) {
+        target = activeInc.target;
+        targetStatus = targetStatus || activeInc.severity;
+        initialLogs = initialLogs || activeInc.detail;
+      } else if (degraded) {
+        target = degraded.name;
+        targetStatus = targetStatus || degraded.status;
+      } else if (cachedContainers && cachedContainers.length > 0) {
+        target = cachedContainers[0].name;
+      }
+    }
+
+    renderAiDiagSelectors('', target);
+
+    if (target) {
+      await selectAiDiagTarget(target, targetStatus, initialLogs);
+    }
+  };
+  document.getElementById('openAiDiagBtn')?.addEventListener('click', () => openAiModal());
+  window.openAiRcaModal = openAiModal;
+
+  document.getElementById('aiDiagSearchInput')?.addEventListener('input', (e) => {
+    const q = e.target.value;
+    const currentSelected = document.getElementById('aiDiagServiceSelect')?.value;
+    renderAiDiagSelectors(q, currentSelected);
+  });
+
+  document.getElementById('aiDiagServiceSelect')?.addEventListener('change', async (e) => {
+    const name = e.target.value;
+    if (name) {
+      await selectAiDiagTarget(name);
+    }
+  });
+
+  document.getElementById('aiFetchLogsBtn')?.addEventListener('click', async () => {
+    const name = document.getElementById('aiDiagServiceSelect')?.value;
+    if (!name) {
+      showToast('Please select a service or container first.', 'error');
+      return;
+    }
+    const statusMsg = document.getElementById('aiDiagLogStatusMsg');
+    if (statusMsg) statusMsg.textContent = '🔄 Fetching...';
+    try {
+      const res = await apiFetch(`/api/containers/${name}/logs?tail=100`);
+      if (res.ok) {
+        const logData = await res.json();
+        const logsBox = document.getElementById('aiDiagLogsInput');
+        if (logsBox) logsBox.value = logData.logs || '';
+        if (statusMsg) statusMsg.textContent = '✓ Tail logs updated';
+        showToast('Refreshed tail logs.', 'info');
+      }
+    } catch (err) {
+      if (statusMsg) statusMsg.textContent = '⚠ Failed to fetch';
+      showToast('Could not retrieve logs.', 'error');
+    }
+  });
+
+  document.getElementById('aiDiagForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const service_name = document.getElementById('aiDiagServiceSelect')?.value;
+    const container_status = document.getElementById('aiDiagStatusInput')?.value || 'running';
+    const logs = document.getElementById('aiDiagLogsInput')?.value || '';
+    const submitBtn = document.getElementById('aiDiagSubmitBtn');
+
+    if (!service_name) {
+      showToast('Please select a target container.', 'error');
+      return;
+    }
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span>⚡ Running AI RCA Engine...</span>';
+    }
+
+    try {
+      const res = await apiFetch('/api/ai/rca', {
+        method: 'POST',
+        body: JSON.stringify({ service_name, container_status, logs })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const contentBox = document.getElementById('aiDiagResultContent');
+        if (contentBox) contentBox.innerHTML = renderMarkdown(data.diagnosis);
+        const resBox = document.getElementById('aiDiagResultContainer');
+        if (resBox) resBox.style.display = 'block';
+        showToast('AI Incident Diagnosis complete.', 'success');
+      } else {
+        showToast(data.detail || 'Analysis could not be completed.', 'error');
+      }
+    } catch (err) {
+      showToast('Network error contacting AI RCA endpoint.', 'error');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>✨ Run AI Root Cause Diagnosis</span>';
+      }
+    }
+  });
+
+  document.getElementById('copyAiReportBtn')?.addEventListener('click', () => {
+    const text = document.getElementById('aiDiagResultContent')?.innerText || '';
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Copied diagnosis report to clipboard!', 'success');
+    });
+  });
+}
+
+function renderMarkdown(md) {
+  if (!md) return '';
+  return escapeHtml(md)
+    .replace(/^### (.*$)/gim, '<h3 style="font-size:16px; margin: 12px 0 6px; font-weight:700;">$1</h3>')
+    .replace(/^#### (.*$)/gim, '<h4 style="font-size:14px; margin: 10px 0 4px; font-weight:600; color:var(--accent-cyan);">$1</h4>')
+    .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+    .replace(/`(.*?)`/gim, '<code style="background:rgba(255,255,255,0.08); padding:2px 5px; border-radius:4px; font-family:monospace; font-size:12px;">$1</code>')
+    .replace(/\n\n/gim, '<br><br>')
+    .replace(/\n/gim, '<br>');
 }
 
 function switchTab(tabId) {
-  currentTab = tabId;
+  let targetTab = tabId;
+  let shouldScrollToRoutes = false;
+  if (tabId === 'routes') {
+    targetTab = 'settings';
+    shouldScrollToRoutes = true;
+  }
+
+  currentTab = targetTab;
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tabId);
+    btn.classList.toggle('active', btn.dataset.tab === targetTab);
   });
   document.querySelectorAll('.tab-content').forEach(section => {
-    section.classList.toggle('active', section.id === `tab-${tabId}`);
+    section.classList.toggle('active', section.id === `tab-${targetTab}`);
   });
 
-  if (tabId === 'overview') fetchOverview();
-  else if (tabId === 'fleet') fetchFleet();
-  else if (tabId === 'probes') fetchProbes();
-  else if (tabId === 'renewals') fetchRenewals();
-  else if (tabId === 'incidents') fetchIncidents();
-  else if (tabId === 'settings') fetchSettings();
+  // Dynamic breadcrumb label
+  const titles = {
+    overview: 'Overview & Telemetry',
+    fleet: 'Docker Service Fleet',
+    probes: 'Service Health & Uptime Checks',
+    domains: 'SSL Certificates & Domain Governance',
+    renewals: 'Renewals & Client Billing',
+    incidents: 'Incident Audit & Reliability History',
+    settings: 'Settings & Alert Routing Matrix',
+  };
+  const breadcrumb = document.getElementById('currentBreadcrumbTab');
+  if (breadcrumb) {
+    breadcrumb.textContent = titles[targetTab] || targetTab;
+  }
+
+  // Close mobile drawer if active
+  document.getElementById('appSidebar')?.classList.remove('open');
+  document.getElementById('mobileBackdrop')?.classList.remove('active');
+
+  if (targetTab === 'overview') fetchOverview();
+  else if (targetTab === 'fleet') fetchFleet();
+  else if (targetTab === 'probes') fetchProbes();
+  else if (targetTab === 'domains') fetchDomains();
+  else if (targetTab === 'renewals') fetchRenewals();
+  else if (targetTab === 'incidents') fetchIncidents();
+  else if (targetTab === 'settings') {
+    fetchSettings();
+    if (shouldScrollToRoutes) {
+      setTimeout(() => {
+        document.getElementById('alertRoutingMatrixCard')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }
 }
 
 // ── Polling & Auto-Refresh ──────────────────────────────────────────────────
@@ -355,6 +1196,8 @@ function startAutoRefresh() {
     refreshCountdown--;
     const el = document.getElementById('refreshTimerCountdown');
     if (el) el.textContent = `${refreshCountdown}s`;
+    const el2 = document.getElementById('overviewRefreshTicker');
+    if (el2) el2.textContent = `${refreshCountdown}s`;
 
     if (refreshCountdown <= 0) {
       refreshCountdown = 5;
@@ -371,6 +1214,7 @@ function refreshAll() {
   if (currentTab === 'overview') fetchOverview();
   else if (currentTab === 'fleet') fetchFleet();
   else if (currentTab === 'probes') fetchProbes();
+  else if (currentTab === 'domains') fetchDomains();
   else if (currentTab === 'renewals') fetchRenewals();
   else if (currentTab === 'incidents') fetchIncidents();
   else if (currentTab === 'settings') fetchSettings();
@@ -388,58 +1232,286 @@ async function fetchOverview() {
     // Metrics
     const m = data.metrics || {};
     document.getElementById('cpuMetricVal').textContent = `${m.cpu_percent || 0}%`;
-    document.getElementById('cpuProgressBar').style.width = `${m.cpu_percent || 0}%`;
-    document.getElementById('loadAvgVal').textContent = `Load: ${(m.load_avg || []).slice(0, 2).join(', ')}`;
+    document.getElementById('cpuProgressBar').style.width = `${Math.min(100, m.cpu_percent || 0)}%`;
+    document.getElementById('loadAvgVal').textContent = `Load: ${(m.load_avg || []).slice(0, 3).join(', ')}`;
 
+    // Memory (Mathematically accurate and consistent)
     document.getElementById('ramMetricVal').textContent = `${m.ram_percent || 0}%`;
-    document.getElementById('ramProgressBar').style.width = `${m.ram_percent || 0}%`;
+    document.getElementById('ramProgressBar').style.width = `${Math.min(100, m.ram_percent || 0)}%`;
     document.getElementById('ramUsedTotalVal').textContent = `${m.ram_used_gb || 0} GB / ${m.ram_total_gb || 0} GB`;
 
     document.getElementById('diskMetricVal').textContent = `${m.disk_percent || 0}%`;
-    document.getElementById('diskProgressBar').style.width = `${m.disk_percent || 0}%`;
+    document.getElementById('diskProgressBar').style.width = `${Math.min(100, m.disk_percent || 0)}%`;
     document.getElementById('diskFreeVal').textContent = `Free: ${m.disk_free_gb || 0} GB`;
 
-    document.getElementById('uptimeVal').textContent = `Uptime: ${m.uptime_human || '--'}`;
+    // Service Availability SLA (Computed from actual active checks)
+    const healthRate = data.health_percentage != null ? data.health_percentage : 100;
+    const fleetRateEl = document.getElementById('fleetHealthyRate');
+    if (fleetRateEl) fleetRateEl.textContent = `${healthRate}%`;
+    const availProgress = document.getElementById('availProgressBar');
+    if (availProgress) availProgress.style.width = `${Math.min(100, healthRate)}%`;
+    document.getElementById('uptimeVal').textContent = `Host Uptime: ${m.uptime_human || '--'}`;
+
+    // Sidebar mini telemetry
+    const sideCpuBar = document.getElementById('sidebarCpuBar');
+    const sideCpuVal = document.getElementById('sidebarCpuVal');
+    const sideRamBar = document.getElementById('sidebarRamBar');
+    const sideRamVal = document.getElementById('sidebarRamVal');
+    if (sideCpuBar) sideCpuBar.style.width = `${m.cpu_percent || 0}%`;
+    if (sideCpuVal) sideCpuVal.textContent = `${m.cpu_percent || 0}%`;
+    if (sideRamBar) sideRamBar.style.width = `${m.ram_percent || 0}%`;
+    if (sideRamVal) sideRamVal.textContent = `${m.ram_percent || 0}%`;
 
     // Counts & Badges
     const c = data.counts || {};
     document.getElementById('navFleetCount').textContent = c.containers_total || 0;
     document.getElementById('navProbesCount').textContent = c.endpoints_total || 0;
+    const navDom = document.getElementById('navDomainsCount');
+    if (navDom) navDom.textContent = c.domains_total || 0;
     document.getElementById('navRenewalsCount').textContent = c.renewals_pending || 0;
     document.getElementById('navIncidentsCount').textContent = c.incidents_open || 0;
 
-    // Global Status Dot
-    const dot = document.getElementById('globalStatusDot');
-    if (c.incidents_open > 0 || c.containers_unhealthy > 0) {
-      dot.className = 'status-dot red';
+    // Header Host Identity & Sync Time
+    const hostNodeEl = document.getElementById('overviewHostName');
+    if (hostNodeEl) hostNodeEl.textContent = data.server_name || 'node-01';
+
+    const lastSyncEl = document.getElementById('lastUpdatedTime');
+    if (lastSyncEl) {
+      lastSyncEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // Overall Status Computation (HEALTHY, DEGRADED, DOWN)
+    const heroDot = document.getElementById('heroStatusDot');
+    const heroTitle = document.getElementById('heroStatusTitle');
+    const overallBadge = document.getElementById('overallHealthBadge');
+    const globalDot = document.getElementById('globalStatusDot');
+    const alertBanner = document.getElementById('attentionAlertBanner');
+    const alertTitle = document.getElementById('attentionAlertTitle');
+    const alertDesc = document.getElementById('attentionAlertDesc');
+    const alertIcon = document.getElementById('attentionAlertIcon');
+
+    const sysStatus = data.system_status || (
+      (c.incidents_open > 0 || c.containers_unhealthy > 0 || c.endpoints_unhealthy > 0)
+        ? ((c.endpoints_unhealthy > 0 && c.endpoints_healthy === 0) ? 'DOWN' : 'DEGRADED')
+        : 'HEALTHY'
+    );
+
+    if (sysStatus === 'HEALTHY') {
+      if (globalDot) globalDot.className = 'status-dot green';
+      if (heroDot) heroDot.className = 'status-dot green pulse-beacon';
+      if (heroTitle) heroTitle.textContent = 'All Systems Operational';
+      if (overallBadge) {
+        overallBadge.className = 'badge badge-running';
+        overallBadge.textContent = '100% HEALTHY';
+      }
+      if (alertBanner) alertBanner.style.display = 'none';
+    } else if (sysStatus === 'DEGRADED') {
+      if (globalDot) globalDot.className = 'status-dot amber';
+      if (heroDot) heroDot.className = 'status-dot amber pulse-beacon';
+      if (heroTitle) heroTitle.textContent = 'System Degraded';
+      if (overallBadge) {
+        overallBadge.className = 'badge badge-snoozed';
+        overallBadge.textContent = `${healthRate}% AVAIL`;
+      }
+      if (alertBanner) {
+        alertBanner.style.display = 'flex';
+        alertBanner.className = 'attention-alert-bar warning';
+        if (alertIcon) alertIcon.textContent = '⚠️';
+        if (alertTitle) alertTitle.textContent = 'Attention Required: Degraded Health';
+        const issues = [];
+        if (c.endpoints_unhealthy > 0) issues.push(`${c.endpoints_unhealthy} service(s) failing`);
+        if (c.containers_unhealthy > 0) issues.push(`${c.containers_unhealthy} container(s) unhealthy`);
+        if (c.incidents_open > 0) issues.push(`${c.incidents_open} open incident(s)`);
+        if (alertDesc) alertDesc.textContent = issues.join(' · ') || 'System operating in degraded capacity.';
+      }
     } else {
-      dot.className = 'status-dot green';
+      // DOWN
+      if (globalDot) globalDot.className = 'status-dot red';
+      if (heroDot) heroDot.className = 'status-dot red pulse-beacon';
+      if (heroTitle) heroTitle.textContent = 'Critical Outage Detected';
+      if (overallBadge) {
+        overallBadge.className = 'badge badge-exited';
+        overallBadge.textContent = `${healthRate}% AVAIL`;
+      }
+      if (alertBanner) {
+        alertBanner.style.display = 'flex';
+        alertBanner.className = 'attention-alert-bar';
+        if (alertIcon) alertIcon.textContent = '🚨';
+        if (alertTitle) alertTitle.textContent = 'Critical System Failure';
+        if (alertDesc) alertDesc.textContent = 'Immediate operator intervention required: multiple core health checks failing.';
+      }
     }
 
     // Recent Incidents list in Overview
     const incBox = document.getElementById('overviewIncidentsContainer');
     const recent = data.recent_incidents || [];
     if (recent.length === 0) {
-      incBox.innerHTML = '<div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 24px 0;">✅ No active incidents. All systems are operating smoothly.</div>';
+      incBox.innerHTML = '<div style="color: var(--text-muted); font-size: 13.5px; text-align: center; padding: 20px 0;">✅ No active incidents. All services operating normally.</div>';
     } else {
       incBox.innerHTML = recent.map(inc => `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-subtle);">
           <div>
             <strong style="color: var(--color-danger);">${escapeHtml(inc.target)}</strong> — ${escapeHtml(inc.title)}
-            <div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(inc.detail || '')} · Alert #${inc.alert_count}</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(inc.detail || '')} · Alert #${inc.alert_count}</div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="resolveIncident(${inc.id})">Mark Resolved</button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(inc.target)}', '${escapeHtml(inc.severity)}', '${escapeHtml(inc.detail || '')}')">🤖 AI RCA</button>
+            <button class="btn btn-secondary btn-sm" onclick="resolveIncident(${inc.id})">Resolve</button>
+          </div>
         </div>
       `).join('');
     }
+
+    // Populate Overview Dual-Deck Widgets & Fleet Table
+    await populateOverviewWidgets();
   } catch (err) {
     console.error('Error fetching overview:', err);
   }
 }
 
-// ── Tab 2: Docker Fleet ─────────────────────────────────────────────────────
+async function populateOverviewWidgets() {
+  try {
+    // 1. Live Probes Table (Compact, Readable, Explicit Status Labels & Latencies)
+    const probesRes = await apiFetch('/api/probes');
+    if (probesRes.ok) {
+      const probes = await probesRes.json();
+      const probesTbody = document.getElementById('overviewProbesTbody');
+      if (probesTbody) {
+        if (probes.length === 0) {
+          probesTbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 18px;">No service health checks configured.</td></tr>';
+        } else {
+          probesTbody.innerHTML = probes.slice(0, 6).map(p => {
+            const isHealthy = Boolean(p.is_healthy);
+            const statusLabel = isHealthy 
+              ? 'ONLINE' 
+              : (p.status_code ? `HTTP ${p.status_code}` : 'DOWN');
+            const statusClass = isHealthy ? 'badge-running' : 'badge-exited';
+            const latencyStr = (isHealthy && p.latency_ms > 0) ? `${p.latency_ms}ms` : '—';
+            const latencyClass = !isHealthy 
+              ? 'latency-unavailable' 
+              : (p.latency_ms < 300 ? 'latency-fast' : (p.latency_ms > 1500 ? 'latency-slow' : 'latency-warning'));
 
-let cachedContainers = [];
+            return `
+              <tr>
+                <td>
+                  <div style="font-weight: 600; color: var(--text-primary);">${escapeHtml(p.name)}</div>
+                  <div style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">${escapeHtml(p.url)}</div>
+                </td>
+                <td>
+                  <span class="status-dot ${isHealthy ? 'green' : 'red'}" style="margin-right: 6px;"></span>
+                  <span class="badge ${statusClass}" style="font-size: 10px;">${escapeHtml(statusLabel)}</span>
+                </td>
+                <td>
+                  <span class="latency-pill ${latencyClass}">
+                    ${latencyStr}
+                  </span>
+                </td>
+                <td style="text-align: right; color: var(--text-muted); font-size: 12px;">
+                  Just now
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      }
+    }
+
+    // 2. Docker Fleet Lower Section Table
+    const contRes = await apiFetch('/api/containers');
+    if (contRes.ok) {
+      const conts = await contRes.json();
+      const fleetTbody = document.getElementById('overviewFleetTbody');
+      const runningCountEl = document.getElementById('overviewFleetRunningCount');
+      if (runningCountEl) {
+        const running = conts.filter(c => c.status === 'running').length;
+        runningCountEl.textContent = `${running} RUNNING`;
+      }
+      if (fleetTbody) {
+        if (conts.length === 0) {
+          fleetTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 18px;">No Docker containers detected.</td></tr>';
+        } else {
+          fleetTbody.innerHTML = conts.slice(0, 6).map(c => {
+            const isRunning = c.status === 'running';
+            const statusBadge = isRunning ? 'badge-running' : (c.status === 'snoozed' ? 'badge-snoozed' : 'badge-exited');
+            const healthBadge = c.health === 'healthy' 
+              ? '<span class="badge badge-running" style="font-size: 10px;">healthy</span>'
+              : (c.health === 'unhealthy' ? '<span class="badge badge-exited" style="font-size: 10px;">unhealthy</span>' : '<span style="color: var(--text-muted); font-size: 12px;">—</span>');
+            return `
+              <tr>
+                <td>
+                  <div style="font-weight: 600; color: var(--text-primary);">${escapeHtml(c.name)}</div>
+                </td>
+                <td>
+                  <span style="font-size: 11.5px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">${escapeHtml(c.image || 'docker-image')}</span>
+                </td>
+                <td>
+                  <span class="badge ${statusBadge}" style="font-size: 10.5px;">${escapeHtml(c.status)}</span>
+                </td>
+                <td>
+                  ${healthBadge}
+                </td>
+                <td style="text-align: right;">
+                  <button class="btn btn-secondary btn-sm" onclick="openLogsModal('${escapeHtml(c.name)}')">📋 Logs</button>
+                  <button class="btn btn-secondary btn-sm" onclick="openRestartModal('${escapeHtml(c.name)}')">🔄 Restart</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      }
+    }
+
+    // 3. SSL Radar
+    const domRes = await apiFetch('/api/domains');
+    if (domRes.ok) {
+      const doms = await domRes.json();
+      const radar = document.getElementById('overviewDomainsRadar');
+      if (radar) {
+        if (doms.length === 0) {
+          radar.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No tracked domains.</div>';
+        } else {
+          radar.innerHTML = doms.slice(0, 3).map(d => {
+            let daysClass = 'badge-running';
+            if (d.days_remaining < 15) daysClass = 'badge-exited';
+            else if (d.days_remaining < 45) daysClass = 'badge-snoozed';
+            return `
+              <div class="overview-radar-item">
+                <span class="overview-radar-domain">${escapeHtml(d.domain)}</span>
+                <span class="badge ${daysClass}">${d.days_remaining}d left</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+    }
+
+    // 4. Renewals Horizon
+    const renRes = await apiFetch('/api/renewals');
+    if (renRes.ok) {
+      const rens = await renRes.json();
+      const renHorizon = document.getElementById('overviewRenewalsHorizon');
+      if (renHorizon) {
+        if (rens.length === 0) {
+          renHorizon.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No upcoming renewals.</div>';
+        } else {
+          renHorizon.innerHTML = rens.slice(0, 2).map(r => `
+            <div class="overview-radar-item">
+              <div>
+                <strong style="font-size: 13px; color: var(--text-primary); display: block;">${escapeHtml(r.name)}</strong>
+                <span style="font-size: 11px; color: var(--text-muted);">Due: ${escapeHtml(r.due_date)}</span>
+              </div>
+              <span class="badge badge-snoozed">₹${Number(r.amount || 0).toLocaleString('en-IN')}</span>
+            </div>
+          `).join('');
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error populating overview widgets:', e);
+  }
+}
+
+// ── Tab 2: Docker Fleet ─────────────────────────────────────────────────────
 
 async function fetchFleet() {
   try {
@@ -503,6 +1575,7 @@ function filterFleetGrid() {
         <div class="card-actions">
           <button class="btn btn-secondary btn-sm" onclick="openLogsModal('${escapeHtml(c.name)}')">📋 Logs</button>
           <button class="btn btn-secondary btn-sm" onclick="openRestartModal('${escapeHtml(c.name)}')">🔄 Restart</button>
+          <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(c.name)}', '${escapeHtml(c.status)}')">⚡ AI RCA</button>
           ${c.is_snoozed 
             ? `<button class="btn btn-secondary btn-sm" onclick="unsnoozeContainer('${escapeHtml(c.name)}')">🔔 Unsnooze</button>`
             : `<button class="btn btn-secondary btn-sm" onclick="openSnoozeModal('${escapeHtml(c.name)}')">⏰ Snooze</button>`
@@ -519,74 +1592,119 @@ async function fetchProbes() {
   try {
     const res = await apiFetch('/api/probes');
     if (!res.ok) return;
-    const probes = await res.json();
-    document.getElementById('navProbesCount').textContent = probes.length;
+    cachedProbes = await res.json();
+    document.getElementById('navProbesCount').textContent = cachedProbes.length;
 
-    const list = document.getElementById('probesListContainer');
-    if (probes.length === 0) {
-      list.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px; grid-column: 1/-1;">No HTTP probes configured yet. Click "+ Add HTTP Probe" to start monitoring.</div>';
-      return;
-    }
+    // Calculate Probe KPIs
+    const total = cachedProbes.length;
+    const healthy = cachedProbes.filter(p => p.is_healthy).length;
+    const failing = total - healthy;
+    const latencies = cachedProbes.filter(p => p.latency_ms > 0).map(p => p.latency_ms);
+    const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
 
-    list.innerHTML = probes.map(p => {
-      let latencyClass = 'latency-normal';
-      if (p.latency_ms < 150) latencyClass = 'latency-fast';
-      else if (p.latency_ms > 600) latencyClass = 'latency-slow';
+    const elTotal = document.getElementById('probesKpiTotal');
+    const elHealthy = document.getElementById('probesKpiHealthy');
+    const elFailing = document.getElementById('probesKpiFailing');
+    const elLatency = document.getElementById('probesKpiLatency');
 
-      const isHealthy = p.is_healthy;
-      const statusBadge = isHealthy
-        ? `<span class="badge badge-running">HTTP ${p.status_code || 200}</span>`
-        : `<span class="badge badge-exited">FAIL ${p.status_code ? 'HTTP ' + p.status_code : 'DOWN'}</span>`;
+    if (elTotal) elTotal.textContent = `${total} Endpoints`;
+    if (elHealthy) elHealthy.textContent = `${healthy} Healthy`;
+    if (elFailing) elFailing.textContent = `${failing} Alert${failing === 1 ? '' : 's'}`;
+    if (elLatency) elLatency.textContent = `${avgLatency} ms`;
 
-      // 10 micro-status spark bars (BetterStack style)
-      const sparkBars = Array.from({ length: 10 }, (_, i) => {
-        let barClass = 'uptime-spark-bar';
-        if (!isHealthy && i >= 8) barClass += ' down';
-        else if (p.latency_ms > 400 && i >= 7) barClass += ' degraded';
-        return `<span class="${barClass}"></span>`;
-      }).join('');
-
-      return `
-        <div class="glass-panel probe-item">
-          <div class="probe-header">
-            <div class="probe-title-group">
-              <span class="status-dot ${isHealthy ? 'green' : 'red'}"></span>
-              <div>
-                <div class="probe-name">${escapeHtml(p.name)}</div>
-                <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" class="probe-url-link">${escapeHtml(p.url)}</a>
-              </div>
-            </div>
-            <div>${statusBadge}</div>
-          </div>
-
-          <div class="probe-metrics-strip">
-            <div style="display: flex; flex-direction: column; gap: 3px;">
-              <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Latency</span>
-              <span class="latency-pill ${latencyClass}">⚡ ${p.latency_ms || 0} ms</span>
-            </div>
-            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;">
-              <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Status Pulse</span>
-              <div class="uptime-spark-bars">${sparkBars}</div>
-            </div>
-          </div>
-
-          <div class="probe-actions-footer">
-            <span style="font-size: 12px; color: var(--text-muted);">
-              ${p.enabled === 1 ? '<span style="color: var(--color-success);">● Active</span>' : '<span style="color: var(--text-muted);">○ Paused</span>'}
-            </span>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" onclick="toggleProbe(${p.id}, ${p.enabled === 1 ? 'false' : 'true'})">
-                ${p.enabled === 1 ? 'Pause' : 'Resume'}
-              </button>
-              <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})">🗑</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    filterProbesGrid();
   } catch (err) {
     console.error('Error fetching probes:', err);
   }
+}
+
+function filterProbesGrid() {
+  const query = (document.getElementById('probesSearchInput')?.value || '').toLowerCase();
+  const filterBtn = document.querySelector('.probe-filter-btn.active');
+  const filter = filterBtn ? filterBtn.dataset.filter : 'all';
+
+  const filtered = cachedProbes.filter(p => {
+    const matchesQuery = (p.name || '').toLowerCase().includes(query) || (p.url || '').toLowerCase().includes(query);
+    if (!matchesQuery) return false;
+    if (filter === 'healthy') return p.is_healthy;
+    if (filter === 'failing') return !p.is_healthy;
+    if (filter === 'paused') return p.enabled === 0;
+    return true;
+  });
+
+  const list = document.getElementById('probesListContainer');
+  if (!list) return;
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px; grid-column: 1/-1;">No service health checks match your filter.</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(p => {
+    const isHealthy = Boolean(p.is_healthy);
+    let latencyClass = 'latency-normal';
+    let latencyDisplay = `${p.latency_ms} ms`;
+    if (!isHealthy || p.latency_ms == null || p.latency_ms <= 0) {
+      latencyClass = 'latency-unavailable';
+      latencyDisplay = 'Unavailable (—)';
+    } else if (p.latency_ms < 300) {
+      latencyClass = 'latency-fast';
+    } else if (p.latency_ms <= 1500) {
+      latencyClass = 'latency-warning';
+    } else {
+      latencyClass = 'latency-slow';
+    }
+
+    const statusBadge = isHealthy
+      ? `<span class="badge badge-running">ONLINE · HTTP ${p.status_code || 200}</span>`
+      : `<span class="badge badge-exited">DOWN ${p.status_code ? '· HTTP ' + p.status_code : '· UNREACHABLE'}</span>`;
+
+    // 12 micro-status spark bars
+    const sparkBars = Array.from({ length: 12 }, (_, i) => {
+      let barClass = 'uptime-spark-bar';
+      if (!isHealthy && i >= 10) barClass += ' down';
+      else if (p.latency_ms > 400 && i >= 9) barClass += ' degraded';
+      return `<span class="${barClass}"></span>`;
+    }).join('');
+
+    return `
+      <div class="glass-panel probe-item">
+        <div class="probe-header">
+          <div class="probe-title-group">
+            <span class="status-dot ${isHealthy ? 'green' : 'red'}" style="margin-top: 4px;"></span>
+            <div style="min-width: 0;">
+              <div class="probe-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
+              <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" class="probe-url-link">${escapeHtml(p.url)}</a>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <div class="probe-metrics-strip">
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Response Time</span>
+            <span class="latency-pill ${latencyClass}">${latencyDisplay}</span>
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;">
+            <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Status Pulse</span>
+            <div class="uptime-spark-bars">${sparkBars}</div>
+          </div>
+        </div>
+
+        <div class="probe-actions-footer">
+          <span style="font-size: 12px; color: var(--text-muted);">
+            ${p.enabled === 1 ? '<span style="color: var(--color-success); font-weight: 600;">● Active Service</span>' : '<span style="color: var(--text-muted);">○ Paused</span>'}
+          </span>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-secondary btn-sm" onclick="toggleProbe(${p.id}, ${p.enabled === 1 ? 'false' : 'true'})">
+              ${p.enabled === 1 ? 'Pause' : 'Resume'}
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})">🗑</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 async function toggleProbe(probeId, newEnabledState) {
@@ -596,104 +1714,181 @@ async function toggleProbe(probeId, newEnabledState) {
       body: JSON.stringify({ enabled: newEnabledState })
     });
     if (res.ok) {
-      showToast('Probe state updated.', 'success');
+      showToast('Service health check state updated.', 'success');
       fetchProbes();
     }
   } catch (err) {
-    showToast('Failed to toggle probe.', 'error');
+    showToast('Failed to toggle service check.', 'error');
   }
 }
 
 async function deleteProbe(probeId) {
-  if (!confirm('Remove this HTTP probe?')) return;
+  if (!confirm('Remove this service health check?')) return;
   try {
     const res = await apiFetch(`/api/probes/${probeId}`, { method: 'DELETE' });
     if (res.ok) {
-      showToast('Probe removed.', 'success');
+      showToast('Service health check removed.', 'success');
       fetchProbes();
     }
   } catch (err) {
-    showToast('Failed to delete probe.', 'error');
+    showToast('Failed to delete service check.', 'error');
   }
 }
 
 // ── Tab 4: Renewals & Billing ───────────────────────────────────────────────
 
+let cachedRenewals = [];
+
 async function fetchRenewals() {
   try {
     const res = await apiFetch('/api/renewals');
     if (!res.ok) return;
-    const renewals = await res.json();
-    window.renewalsCache = renewals;
-    document.getElementById('navRenewalsCount').textContent = renewals.filter(r => r.status === 'pending').length;
+    cachedRenewals = await res.json();
+    window.renewalsCache = cachedRenewals;
+    document.getElementById('navRenewalsCount').textContent = cachedRenewals.filter(r => r.status === 'pending').length;
 
-    const grid = document.getElementById('renewalsGridContainer');
-    if (renewals.length === 0) {
-      grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No upcoming renewals or client billing items registered.</div>';
-      return;
-    }
+    // Calculate Financial KPIs
+    const active = cachedRenewals.filter(r => r.status === 'pending');
+    let monthlyRunRate = 0;
+    let dueSoonCount = 0;
+    const now = new Date();
 
-    grid.innerHTML = renewals.map(r => {
-      const isPaid = r.status === 'paid';
-      const isCancelled = r.status === 'cancelled';
-      let dueBadge = `<span class="renewal-due-badge normal">Due: ${escapeHtml(r.due_date)}</span>`;
+    active.forEach(r => {
+      const amt = Number(r.amount || 0);
+      const rec = (r.recurrence || 'monthly').toLowerCase();
+      if (rec === 'monthly') monthlyRunRate += amt;
+      else if (rec === 'yearly' || rec === 'annual') monthlyRunRate += (amt / 12);
+      else if (rec === 'quarterly') monthlyRunRate += (amt / 3);
 
-      // Check if due soon (within 7 days)
       const dueDate = new Date(r.due_date);
-      const diffDays = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
-      if (!isPaid && !isCancelled && diffDays < 0) {
-        dueBadge = `<span class="renewal-due-badge overdue">⚠️ Overdue (${Math.abs(diffDays)}d)</span>`;
-      } else if (!isPaid && !isCancelled && diffDays <= 7) {
-        dueBadge = `<span class="renewal-due-badge soon">⏳ Due in ${diffDays} day${diffDays === 1 ? '' : 's'}</span>`;
-      } else if (isPaid) {
-        dueBadge = `<span class="badge badge-running">✅ Paid</span>`;
-      }
+      const diffDays = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+      if (diffDays >= 0 && diffDays <= 30) dueSoonCount++;
+    });
 
-      // Initials avatar
-      const initials = (r.name || 'CR')
-        .split(' ')
-        .map(w => w[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase();
+    const annualProjected = Math.round(monthlyRunRate * 12);
 
-      return `
-        <div class="glass-panel renewal-card" style="${isPaid ? 'opacity: 0.6;' : ''}">
-          <div>
-            <div class="renewal-header">
-              <div style="display: flex; gap: 12px; align-items: center;">
-                <div class="renewal-avatar">${initials}</div>
-                <div>
-                  <h3 style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">${escapeHtml(r.name)}</h3>
-                  <span class="badge badge-snoozed" style="font-size: 10px; text-transform: uppercase;">${escapeHtml(r.category || 'client_billing')}</span>
-                </div>
-              </div>
-              ${dueBadge}
-            </div>
-            
-            <div style="margin: 16px 0;">
-              <div class="renewal-amount-display">
-                ₹${Number(r.amount || 0).toLocaleString('en-IN')}
-                <span style="font-size: 13px; font-weight: normal; color: var(--text-muted); margin-left: 4px;">/ ${r.recurrence || 'monthly'}</span>
-              </div>
-              ${r.notes ? `<p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">${escapeHtml(r.notes)}</p>` : ''}
-            </div>
-          </div>
+    const kpiActive = document.getElementById('renKpiActive');
+    const kpiMonthly = document.getElementById('renKpiMonthly');
+    const kpiUpcoming = document.getElementById('renKpiUpcoming');
+    const kpiAnnual = document.getElementById('renKpiAnnual');
 
-          <div class="card-actions" style="justify-content: flex-end; gap: 6px;">
-            ${!isPaid ? `
-              <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Paid</button>
-              <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze</button>
-              <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
-            ` : ''}
-            <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})">🗑</button>
-          </div>
-        </div>
-      `;
-    }).join('');
+    if (kpiActive) kpiActive.textContent = `${active.length} Active`;
+    if (kpiMonthly) kpiMonthly.textContent = `₹${Math.round(monthlyRunRate).toLocaleString('en-IN')} / mo`;
+    if (kpiUpcoming) kpiUpcoming.textContent = `${dueSoonCount} Due Soon`;
+    if (kpiAnnual) kpiAnnual.textContent = `₹${annualProjected.toLocaleString('en-IN')} / yr`;
+
+    filterRenewalsGrid();
+    renderRenewalsTimeline(cachedRenewals);
   } catch (err) {
     console.error('Error fetching renewals:', err);
   }
+}
+
+function filterRenewalsGrid() {
+  const query = (document.getElementById('renewalsSearchInput')?.value || '').toLowerCase();
+  const filterBtn = document.querySelector('.renewal-filter-btn.active');
+  const filter = filterBtn ? filterBtn.dataset.filter : 'all';
+
+  const filtered = cachedRenewals.filter(r => {
+    const matchesQuery = (r.name || '').toLowerCase().includes(query) || (r.category || '').toLowerCase().includes(query) || (r.notes || '').toLowerCase().includes(query);
+    if (!matchesQuery) return false;
+    if (filter === 'vps') return (r.category || '').toLowerCase().includes('vps');
+    if (filter === 'domain') return (r.category || '').toLowerCase().includes('domain');
+    if (filter === 'ssl') return (r.category || '').toLowerCase().includes('ssl');
+    if (filter === 'saas') return (r.category || '').toLowerCase().includes('saas') || (r.category || '').toLowerCase().includes('client');
+    return true;
+  });
+
+  const grid = document.getElementById('renewalsGridContainer');
+  if (!grid) return;
+
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No renewals match your search.</div>';
+    return;
+  }
+
+  grid.innerHTML = filtered.map(r => {
+    const isPaid = r.status === 'paid';
+    const isCancelled = r.status === 'cancelled';
+    let dueBadge = `<span class="renewal-due-badge normal">Due: ${escapeHtml(r.due_date)}</span>`;
+
+    const dueDate = new Date(r.due_date);
+    const diffDays = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+    if (!isPaid && !isCancelled && diffDays < 0) {
+      dueBadge = `<span class="renewal-due-badge overdue">⚠️ Overdue (${Math.abs(diffDays)}d)</span>`;
+    } else if (!isPaid && !isCancelled && diffDays <= 7) {
+      dueBadge = `<span class="renewal-due-badge soon">⏳ Due in ${diffDays} day${diffDays === 1 ? '' : 's'}</span>`;
+    } else if (!isPaid && !isCancelled && diffDays <= 30) {
+      dueBadge = `<span class="renewal-due-badge normal" style="color: var(--accent-cyan); font-weight: 700;">📅 In ${diffDays} days</span>`;
+    } else if (isPaid) {
+      dueBadge = `<span class="badge badge-running">✅ Paid</span>`;
+    }
+
+    let categoryIcon = '🖥️';
+    const cat = (r.category || '').toLowerCase();
+    if (cat.includes('domain')) categoryIcon = '🌐';
+    else if (cat.includes('ssl')) categoryIcon = '🔒';
+    else if (cat.includes('saas') || cat.includes('client')) categoryIcon = '⚡';
+
+    const currencySymbol = r.currency === 'USD' ? '$' : (r.currency === 'EUR' ? '€' : '₹');
+
+    return `
+      <div class="glass-panel renewal-card" style="${isPaid ? 'opacity: 0.6;' : ''}">
+        <div>
+          <div class="renewal-header">
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <div class="renewal-avatar">${categoryIcon}</div>
+              <div>
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">${escapeHtml(r.name)}</h3>
+                <span class="badge badge-snoozed" style="font-size: 10px; text-transform: uppercase;">${escapeHtml(r.category || 'other')}</span>
+              </div>
+            </div>
+            ${dueBadge}
+          </div>
+          
+          <div style="margin: 16px 0;">
+            <div class="renewal-amount-display">
+              ${currencySymbol}${Number(r.amount || 0).toLocaleString()}
+              <span style="font-size: 13px; font-weight: normal; color: var(--text-muted); margin-left: 6px;">/ ${escapeHtml(r.recurrence || 'monthly')}</span>
+            </div>
+            ${r.notes ? `<p style="font-size: 12.5px; color: var(--text-muted); margin-top: 6px; line-height: 1.45;">${escapeHtml(r.notes)}</p>` : ''}
+          </div>
+        </div>
+
+        <div class="card-actions" style="justify-content: flex-end; gap: 6px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+          ${!isPaid ? `
+            <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Paid</button>
+            <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze</button>
+            <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
+          ` : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})">🗑</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRenewalsTimeline(renewals) {
+  const container = document.getElementById('renewalsTimelineContainer');
+  if (!container) return;
+
+  if (!renewals || renewals.length === 0) {
+    container.innerHTML = '<div style="color: var(--text-muted); font-size: 12.5px;">No upcoming payments scheduled.</div>';
+    return;
+  }
+
+  container.innerHTML = renewals.slice(0, 5).map(r => {
+    const cur = r.currency === 'USD' ? '$' : (r.currency === 'EUR' ? '€' : '₹');
+    return `
+      <div class="timeline-item">
+        <div>
+          <span class="timeline-item-title">${escapeHtml(r.name)}</span>
+          <span style="display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px;">Due: ${escapeHtml(r.due_date)}</span>
+        </div>
+        <span class="timeline-item-price">${cur}${Number(r.amount || 0).toLocaleString()}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 async function markRenewalPaid(renewalId) {
@@ -846,9 +2041,12 @@ function renderIncidentsFeed() {
             <span>🕒 Detected: <strong>${escapeHtml(inc.created_at || 'Just now')}</strong></span>
             ${isResolved ? `<span>⚡ Auto-Resolved: <strong>${escapeHtml(inc.resolved_at)}</strong></span>` : ''}
           </div>
-          <div>
+          <div style="display: flex; gap: 8px;">
             ${!isResolved 
-              ? `<button class="btn btn-primary btn-sm" onclick="resolveIncident(${inc.id})">Mark Resolved</button>` 
+              ? `
+                <button class="btn btn-secondary btn-sm" onclick="openAiRcaModal('${escapeHtml(inc.target)}', '${escapeHtml(inc.severity)}', '${escapeHtml(inc.detail || '')}')">🤖 AI RCA</button>
+                <button class="btn btn-primary btn-sm" onclick="resolveIncident(${inc.id})">Mark Resolved</button>
+              ` 
               : '<span style="font-size: 11px; color: var(--color-success); font-weight: 500;">✓ Audited & Closed</span>'}
           </div>
         </div>
@@ -991,6 +2189,108 @@ function openEditRenewalModal(renewalId) {
   openModal('editRenewalModal');
 }
 
+// ── AI Engine Settings & Dynamic Model Discovery ────────────────────────────
+
+let aiSettingsUserInteracted = false;
+
+function populateAiModelSelect(provider, selectedModel, modelsList = null) {
+  const selectEl = document.getElementById('aiModelSelect');
+  const customWrap = document.getElementById('aiCustomModelWrap');
+  const customInp = document.getElementById('aiModelCustomInput');
+  const legacyInp = document.getElementById('aiModelInput');
+  const countBadge = document.getElementById('aiModelCountBadge');
+  const presetsWrap = document.getElementById('aiModelPresets');
+  if (!selectEl) return;
+
+  selectEl.innerHTML = '';
+
+  // If models were loaded live from the Provider API
+  if (modelsList && modelsList.length > 0) {
+    if (countBadge) {
+      countBadge.textContent = `⚡ ${modelsList.length} Models from ${provider.toUpperCase()}`;
+    }
+
+    let hasMatch = false;
+    modelsList.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name || m.id;
+      if (selectedModel && selectedModel === m.id) {
+        opt.selected = true;
+        hasMatch = true;
+      }
+      selectEl.appendChild(opt);
+    });
+
+    // Custom option
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.textContent = '✏️ Custom Model Identifier...';
+    selectEl.appendChild(customOpt);
+
+    if (!hasMatch && selectedModel) {
+      customOpt.selected = true;
+      if (customWrap) customWrap.style.display = 'block';
+      if (customInp) customInp.value = selectedModel;
+      if (legacyInp) legacyInp.value = selectedModel;
+    } else {
+      if (!hasMatch && modelsList.length > 0) {
+        selectEl.selectedIndex = 0;
+        if (legacyInp) legacyInp.value = modelsList[0].id;
+      } else if (hasMatch && legacyInp) {
+        legacyInp.value = selectedModel;
+      }
+      if (customWrap) customWrap.style.display = 'none';
+    }
+
+    // Dynamic model quick-select chips created strictly from the API results
+    if (presetsWrap) {
+      presetsWrap.innerHTML = '';
+      modelsList.slice(0, 4).forEach(m => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        const activeId = selectEl.value === 'custom' ? (customInp ? customInp.value : '') : selectEl.value;
+        chip.className = `ai-preset-chip${activeId === m.id ? ' active' : ''}`;
+        chip.textContent = m.id;
+        chip.title = m.name || m.id;
+        chip.onclick = () => {
+          selectEl.value = m.id;
+          if (customWrap) customWrap.style.display = 'none';
+          if (legacyInp) legacyInp.value = m.id;
+          presetsWrap.querySelectorAll('.ai-preset-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          aiSettingsUserInteracted = true;
+        };
+        presetsWrap.appendChild(chip);
+      });
+    }
+  } else {
+    // Models not yet queried from API
+    if (presetsWrap) presetsWrap.innerHTML = '';
+
+    if (selectedModel) {
+      if (countBadge) countBadge.textContent = `Configured: ${selectedModel}`;
+      const activeOpt = document.createElement('option');
+      activeOpt.value = selectedModel;
+      activeOpt.textContent = `${selectedModel} (Configured Model)`;
+      activeOpt.selected = true;
+      selectEl.appendChild(activeOpt);
+      if (legacyInp) legacyInp.value = selectedModel;
+    } else {
+      if (countBadge) countBadge.textContent = 'Not Loaded';
+      const promptOpt = document.createElement('option');
+      promptOpt.value = '';
+      promptOpt.textContent = `Click "⚡ Test Key & Fetch Models" to retrieve ${provider.toUpperCase()} models`;
+      selectEl.appendChild(promptOpt);
+    }
+
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.textContent = '✏️ Custom Model Identifier...';
+    selectEl.appendChild(customOpt);
+  }
+}
+
 async function fetchSettings() {
   try {
     const res = await apiFetch('/api/settings');
@@ -1004,6 +2304,66 @@ async function fetchSettings() {
     if (srv) {
       srv.value = `${data.server_name || 'node-01'} (${data.environment || 'production'})`;
     }
+
+    // Populate AI Engine Settings
+    if (data.ai) {
+      const providerSel = document.getElementById('aiProviderSelect');
+      const baseUrlInp = document.getElementById('aiBaseUrlInput');
+      const enabledChk = document.getElementById('aiEnabledCheckbox');
+      const keyInp = document.getElementById('aiApiKeyInput');
+      const statusBadge = document.getElementById('aiStatusBadge');
+      const keyHint = document.getElementById('aiKeyStatusHint');
+
+      const provider = data.ai.provider || 'gemini';
+      const model = data.ai.model || 'gemini-1.5-flash';
+
+      // Only initialize inputs if user is not actively editing them
+      if (!aiSettingsUserInteracted) {
+        if (providerSel && !providerSel.matches(':focus')) {
+          providerSel.value = provider;
+        }
+        if (baseUrlInp && !baseUrlInp.matches(':focus')) {
+          baseUrlInp.value = data.ai.base_url || '';
+        }
+        if (enabledChk) {
+          enabledChk.checked = Boolean(data.ai.enabled);
+        }
+        populateAiModelSelect(provider, model);
+      }
+
+      if (statusBadge) {
+        if (data.ai.enabled && (data.ai.has_key || provider === 'ollama')) {
+          statusBadge.className = 'badge badge-running';
+          statusBadge.textContent = 'Active & Ready';
+        } else if (!data.ai.enabled) {
+          statusBadge.className = 'badge badge-snoozed';
+          statusBadge.textContent = 'Disabled';
+        } else {
+          statusBadge.className = 'badge badge-exited';
+          statusBadge.textContent = 'Key Required';
+        }
+      }
+
+      if (keyHint) {
+        if (data.ai.has_key) {
+          keyHint.innerHTML = `<span style="color: var(--color-success); font-weight: 600;">✅ Saved (${escapeHtml(data.ai.masked_key)})</span>`;
+          if (keyInp && !keyInp.matches(':focus') && !keyInp.value) {
+            keyInp.placeholder = `${data.ai.masked_key} (Saved - leave empty to keep)`;
+          }
+        } else if (provider === 'ollama') {
+          keyHint.innerHTML = `<span style="color: var(--text-muted);">ℹ️ Ollama does not require an API key</span>`;
+          if (keyInp && !keyInp.matches(':focus') && !keyInp.value) {
+            keyInp.placeholder = 'Optional / Not required for Ollama';
+          }
+        } else {
+          keyHint.innerHTML = `<span style="color: var(--color-danger); font-weight: 600;">⚠️ No API Key Configured</span>`;
+          if (keyInp && !keyInp.matches(':focus') && !keyInp.value) {
+            keyInp.placeholder = `Enter API key for ${provider}...`;
+          }
+        }
+      }
+    }
+
     fetchAlertRoutes();
   } catch (err) {
     console.error('Error fetching settings:', err);
@@ -1013,12 +2373,16 @@ async function fetchSettings() {
 // ── Theme Management ─────────────────────────────────────────────────────────
 
 function initTheme() {
-  const saved = localStorage.getItem('opspilot_theme') || 'dark';
+  let saved = localStorage.getItem('opspilot_theme_user_choice');
+  if (!saved) {
+    saved = 'light';
+  }
   applyTheme(saved);
 }
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('opspilot_theme_user_choice', theme);
   localStorage.setItem('opspilot_theme', theme);
   const icon = document.getElementById('themeIcon');
   if (icon) {
@@ -1027,10 +2391,186 @@ function applyTheme(theme) {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   showToast(`Switched to ${next === 'light' ? 'Light' : 'Dark'} theme`, 'info');
+}
+
+// ── Tab: Domains & SSL Certificates ──────────────────────────────────────────
+
+let cachedDomains = [];
+
+async function fetchDomains() {
+  try {
+    const res = await apiFetch('/api/domains');
+    if (!res.ok) return;
+    cachedDomains = await res.json();
+
+    // Update KPI metrics
+    const totalEl = document.getElementById('totalDomainsVal');
+    const validEl = document.getElementById('validCertsVal');
+    const expEl = document.getElementById('expiringSoonCertsVal');
+    const nextEl = document.getElementById('nextCertExpiryVal');
+    const navBadge = document.getElementById('navDomainsCount');
+
+    if (navBadge) navBadge.textContent = cachedDomains.length;
+    if (totalEl) totalEl.textContent = cachedDomains.length;
+
+    const validCount = cachedDomains.filter(d => d.is_valid && d.days_remaining > 0).length;
+    const expCount = cachedDomains.filter(d => d.days_remaining > 0 && d.days_remaining <= 30).length;
+
+    if (validEl) validEl.textContent = validCount;
+    if (expEl) expEl.textContent = expCount;
+
+    const sortedByDays = [...cachedDomains].filter(d => d.days_remaining > 0).sort((a, b) => a.days_remaining - b.days_remaining);
+    if (nextEl) {
+      nextEl.textContent = sortedByDays.length > 0 ? `${sortedByDays[0].days_remaining}d (${escapeHtml(sortedByDays[0].domain)})` : '--';
+    }
+
+    filterDomainsGrid();
+  } catch (err) {
+    console.error('Error fetching domains:', err);
+  }
+}
+
+function filterDomainsGrid() {
+  const query = (document.getElementById('domainsSearchInput')?.value || '').toLowerCase().trim();
+  const filterBtn = document.querySelector('.domain-filter-btn.active');
+  const filter = filterBtn ? filterBtn.dataset.filter : 'all';
+
+  const filtered = cachedDomains.filter(d => {
+    const matchesQuery = d.domain.toLowerCase().includes(query) || (d.issuer || '').toLowerCase().includes(query);
+    if (!matchesQuery) return false;
+
+    if (filter === 'valid') return d.is_valid && d.days_remaining > 30;
+    if (filter === 'expiring') return d.days_remaining > 0 && d.days_remaining <= 30;
+    if (filter === 'invalid') return !d.is_valid || d.days_remaining <= 0;
+    return true;
+  });
+
+  renderDomainsGrid(filtered);
+}
+
+function renderDomainsGrid(domains) {
+  const container = document.getElementById('domainsGridContainer');
+  if (!container) return;
+
+  if (domains.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
+        No SSL domains matching filter. Click "+ Track Domain" to monitor certificates.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = domains.map(d => {
+    const isHealthy = d.is_valid && d.days_remaining > 30;
+    const isExpiring = d.days_remaining > 0 && d.days_remaining <= 30;
+
+    const cardClass = isHealthy ? 'valid' : isExpiring ? 'expiring' : 'invalid';
+    const statusTag = isHealthy
+      ? `<span class="badge badge-running">🟢 Valid TLS</span>`
+      : isExpiring
+      ? `<span class="badge badge-snoozed">🟡 Expiring Soon</span>`
+      : `<span class="badge badge-exited">🔴 Untrusted / Expired</span>`;
+
+    const daysColor = isHealthy ? 'var(--color-success)' : isExpiring ? 'var(--color-warning)' : 'var(--color-danger)';
+
+    return `
+      <div class="glass-panel domain-card ${cardClass}">
+        <div class="domain-top-row">
+          <div>
+            <a href="https://${escapeHtml(d.domain)}" target="_blank" class="domain-name-link" rel="noreferrer">
+              <span>🌐</span> ${escapeHtml(d.domain)}
+            </a>
+            <span class="cert-issuer-badge">Issuer: ${escapeHtml(d.issuer || 'Unknown')}</span>
+          </div>
+          ${statusTag}
+        </div>
+
+        <div style="margin: 6px 0;">
+          <div class="cert-days-large" style="color: ${daysColor};">
+            ${d.days_remaining > 0 ? `${d.days_remaining} Days` : 'Expired'}
+          </div>
+          <span style="font-size: 11.5px; color: var(--text-muted);">until TLS certificate expires</span>
+        </div>
+
+        <div class="cert-meta-list">
+          <div class="cert-meta-item">
+            <span class="cert-meta-label">Expires On</span>
+            <span class="cert-meta-val">${escapeHtml(d.expires_at || 'N/A')}</span>
+          </div>
+          <div class="cert-meta-item">
+            <span class="cert-meta-label">Port / Protocol</span>
+            <span class="cert-meta-val">:${d.port || 443} • TLS 1.3</span>
+          </div>
+          <div class="cert-meta-item">
+            <span class="cert-meta-label">Last Handshake</span>
+            <span class="cert-meta-val">${escapeHtml(d.last_checked_at || 'Just now')}</span>
+          </div>
+          ${d.error ? `
+            <div class="cert-meta-item" style="color: var(--color-danger); margin-top: 4px;">
+              <span class="cert-meta-label" style="color: var(--color-danger);">Error:</span>
+              <span class="cert-meta-val" style="font-size: 11px;">${escapeHtml(d.error)}</span>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="domain-actions-row">
+          <button class="btn btn-secondary btn-sm" onclick="recheckDomain(${d.id})" id="recheckBtn-${d.id}" title="Recheck TLS Certificate">
+            🔄 Check Now
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="deleteDomain(${d.id}, '${escapeHtml(d.domain)}')" style="color: var(--color-danger);" title="Delete Tracker">
+            🗑 Delete
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function recheckDomain(domainId) {
+  const btn = document.getElementById(`recheckBtn-${domainId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '🔄 Probing...';
+  }
+  try {
+    const res = await apiFetch(`/api/domains/${domainId}/check`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(data.message, 'success');
+      fetchDomains();
+    } else {
+      showToast(data.detail || 'Failed to recheck certificate.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error during SSL handshake.', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔄 Check Now';
+    }
+  }
+}
+
+async function deleteDomain(domainId, domainName) {
+  if (!confirm(`Are you sure you want to stop tracking certificate for ${domainName}?`)) return;
+  try {
+    const res = await apiFetch(`/api/domains/${domainId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(data.message, 'success');
+      fetchDomains();
+      fetchOverview();
+    } else {
+      showToast(data.detail || 'Failed to remove domain.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error removing domain.', 'error');
+  }
 }
 
 // ── Multi-Channel Alert Routing Matrix ───────────────────────────────────────

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,7 +23,10 @@
           <label class="form-label" for="adminPasswordInput">Administrator Password</label>
           <input type="password" id="adminPasswordInput" class="form-input" placeholder="Enter master password..." autocomplete="current-password" required autofocus>
         </div>
-        <div id="loginErrorMsg" style="color: var(--color-danger); font-size: 13px; margin-bottom: 14px; display: none;"></div>
+        <div id="loginErrorMsg" class="login-error-alert" style="display: none;">
+          <span class="error-alert-icon">⚠️</span>
+          <span id="loginErrorText"></span>
+        </div>
         <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 12px;">
           <span>Authenticate Session</span> →
         </button>
@@ -31,307 +34,892 @@
     </div>
   </div>
 
-  <!-- ── Main Application ────────────────────────────────────────────────── -->
-  <div id="appContainer" style="display: none;">
+  <!-- ── Main Application Shell (Sendrin-style Architecture) ───────────────── -->
+  <div id="appContainer" class="app-shell" style="display: none;">
 
-    <!-- Navbar -->
-    <header class="navbar">
-      <div class="brand-wrapper">
-        <div class="brand-logo">🚀</div>
-        <div class="brand-title">
-          OpsPilot <span class="gradient-text">2.0</span>
-          <span class="brand-badge">PROD</span>
-        </div>
+    <!-- Mobile Top Navigation Header -->
+    <header class="mobile-header">
+      <div class="mobile-header-brand">
+        <div class="brand-icon-box" style="width: 30px; height: 30px; font-size: 15px;">🚀</div>
+        <strong>OpsPilot 2.0</strong>
+        <span class="brand-badge-prod">PROD</span>
       </div>
-
-      <div class="nav-actions">
-        <div class="server-badge">
-          <span class="status-dot green" id="globalStatusDot"></span>
-          <span>Host: <strong id="serverNameLabel">node-01</strong></span>
-        </div>
-        <button id="themeToggleBtn" class="btn btn-secondary btn-sm" title="Toggle Light/Dark Theme" style="padding: 5px 10px;">
-          <span id="themeIcon">☀️</span>
-        </button>
-        <button id="refreshTimerBtn" class="btn btn-secondary btn-sm" title="Click to pause/resume auto-refresh">
-          ⏱ <span id="refreshTimerCountdown">5s</span>
-        </button>
-        <button id="logoutBtn" class="btn btn-secondary btn-sm">Sign Out</button>
-      </div>
+      <button id="mobileMenuBtn" class="btn-hamburger" aria-label="Toggle navigation">
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+      </button>
     </header>
 
-    <!-- Navigation Tabs -->
-    <div class="nav-tabs-container">
-      <nav class="nav-tabs">
-        <button class="tab-btn active" data-tab="overview">
-          ⚡ Overview
-        </button>
-        <button class="tab-btn" data-tab="fleet">
-          🐳 Fleet <span class="tab-badge" id="navFleetCount">36</span>
-        </button>
-        <button class="tab-btn" data-tab="probes">
-          🌐 Probes <span class="tab-badge" id="navProbesCount">9</span>
-        </button>
-        <button class="tab-btn" data-tab="renewals">
-          💳 Billing & Renewals <span class="tab-badge" id="navRenewalsCount">8</span>
-        </button>
-        <button class="tab-btn" data-tab="incidents">
-          🚨 Incidents <span class="tab-badge" id="navIncidentsCount">0</span>
-        </button>
-        <button class="tab-btn" data-tab="settings">
-          ⚙️ Settings
-        </button>
-      </nav>
-    </div>
+    <!-- Mobile Navigation Drawer Backdrop -->
+    <div id="mobileBackdrop" class="nav-drawer-backdrop"></div>
 
-    <!-- Content Wrapper -->
-    <main class="content-wrapper">
-
-      <!-- ── TAB 1: OVERVIEW ─────────────────────────────────────────────── -->
-      <section id="tab-overview" class="tab-content active">
-        <div class="metrics-grid">
-          <!-- CPU Card -->
-          <div class="glass-panel metric-card">
-            <div class="metric-card-header">
-              <span class="metric-card-title">Processor Load</span>
-              <span class="metric-icon">⚡</span>
-            </div>
-            <div class="metric-value-row">
-              <span class="metric-main-value" id="cpuMetricVal">0%</span>
-              <span class="metric-sub-value" id="loadAvgVal">Load: 0.00, 0.00</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-emerald" id="cpuProgressBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- RAM Card -->
-          <div class="glass-panel metric-card">
-            <div class="metric-card-header">
-              <span class="metric-card-title">Memory Allocation</span>
-              <span class="metric-icon">🧠</span>
-            </div>
-            <div class="metric-value-row">
-              <span class="metric-main-value" id="ramMetricVal">0%</span>
-              <span class="metric-sub-value" id="ramUsedTotalVal">0 GB / 0 GB</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-indigo" id="ramProgressBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- Disk Card -->
-          <div class="glass-panel metric-card">
-            <div class="metric-card-header">
-              <span class="metric-card-title">Primary Storage</span>
-              <span class="metric-icon">💾</span>
-            </div>
-            <div class="metric-value-row">
-              <span class="metric-main-value" id="diskMetricVal">0%</span>
-              <span class="metric-sub-value" id="diskFreeVal">Free: 0 GB</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-emerald" id="diskProgressBar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <!-- Host Status Card -->
-          <div class="glass-panel metric-card">
-            <div class="metric-card-header">
-              <span class="metric-card-title">Host Health</span>
-              <span class="metric-icon">🛡</span>
-            </div>
-            <div class="metric-value-row">
-              <span class="metric-main-value" id="fleetHealthyRate">100%</span>
-              <span class="metric-sub-value" id="uptimeVal">Uptime: --</span>
-            </div>
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill fill-emerald" style="width: 100%;"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Quick Summary Banner -->
-        <div class="glass-panel" style="padding: 24px; margin-bottom: 28px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
-          <div>
-            <h3 style="font-size: 18px; margin-bottom: 4px;">IITDEVELOPER Production Fleet Status</h3>
-            <p style="color: var(--text-secondary); font-size: 14px;" id="fleetStatusSummaryText">
-              All services monitored autonomously. Zero open critical incidents.
-            </p>
-          </div>
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-secondary btn-sm" onclick="switchTab('fleet')">Inspect Fleet →</button>
-            <button class="btn btn-primary btn-sm" onclick="switchTab('probes')">Probe Endpoints →</button>
-          </div>
-        </div>
-
-        <!-- Recent Alerts / Incidents Section -->
-        <div class="section-header">
-          <h2 class="section-title">Active Alerts & Incidents</h2>
-        </div>
-        <div id="overviewIncidentsContainer" class="glass-panel" style="padding: 20px;">
-          <div style="color: var(--text-muted); font-size: 14px; text-align: center; padding: 24px 0;">
-            ✅ No active incidents. All systems are operating smoothly.
-          </div>
-        </div>
-      </section>
-
-      <!-- ── TAB 2: DOCKER FLEET ─────────────────────────────────────────── -->
-      <section id="tab-fleet" class="tab-content">
-        <div class="section-header">
-          <h2 class="section-title">
-            Docker Service Fleet
-            <span class="badge badge-running" id="fleetRunningBadge">36 RUNNING</span>
-          </h2>
-          <div class="filter-bar">
-            <input type="text" id="fleetSearchInput" class="search-input" placeholder="Filter containers (e.g. gns, iam, growixa)...">
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-secondary btn-sm fleet-filter-btn active" data-filter="all">All</button>
-              <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="running">Running</button>
-              <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="exited">Exited</button>
-              <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="snoozed">Snoozed</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="fleetCardsGrid" class="fleet-grid">
-          <!-- Dynamically generated container cards -->
-        </div>
-      </section>
-
-      <!-- ── TAB 3: PROBES ──────────────────────────────────────────────── -->
-      <section id="tab-probes" class="tab-content">
-        <div class="section-header">
-          <h2 class="section-title">HTTP Uptime Probes</h2>
-          <div class="filter-bar">
-            <button class="btn btn-primary btn-sm" id="openAddProbeBtn">+ Add HTTP Probe</button>
-          </div>
-        </div>
-
-        <div id="probesListContainer" class="probe-list">
-          <!-- Dynamically generated probes -->
-        </div>
-      </section>
-
-      <!-- ── TAB 4: RENEWALS & BILLING ───────────────────────────────────── -->
-      <section id="tab-renewals" class="tab-content">
-        <div class="section-header">
-          <h2 class="section-title">Renewals & Client Billing</h2>
-          <div class="filter-bar">
-            <button class="btn btn-primary btn-sm" id="openAddRenewalBtn">+ Add Renewal / Invoice</button>
-          </div>
-        </div>
-
-        <div id="renewalsGridContainer" class="renewals-grid">
-          <!-- Dynamically generated renewal cards -->
-        </div>
-      </section>
-
-      <!-- ── TAB 5: INCIDENTS ───────────────────────────────────────────── -->
-      <section id="tab-incidents" class="tab-content">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Incident Audit & Reliability History</h2>
-            <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
-              Real-time audit log of infrastructure anomalies, automatic failovers, and autonomous recovery events
-            </p>
-          </div>
-          <div class="filter-bar">
-            <input type="text" id="incidentsSearchInput" class="search-input" placeholder="Filter by service, URL, or error...">
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-secondary btn-sm incident-filter-btn active" data-filter="all">All</button>
-              <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="active">Active</button>
-              <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="resolved">Resolved</button>
-              <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="critical">Critical</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Incident KPI Stats Bar -->
-        <div class="incident-kpi-grid">
-          <div class="glass-panel incident-kpi-card">
-            <span class="incident-kpi-label">Active Incidents</span>
-            <div class="incident-kpi-val" id="activeIncidentsCountVal">
-              <span class="status-dot green"></span> 0 Open
-            </div>
-            <span class="incident-kpi-sub">All monitored endpoints healthy</span>
-          </div>
-
-          <div class="glass-panel incident-kpi-card">
-            <span class="incident-kpi-label">Autonomous Recovery</span>
-            <div class="incident-kpi-val" style="color: var(--color-success);" id="autoResolvedRateVal">100%</div>
-            <span class="incident-kpi-sub">Self-healed without manual intervention</span>
-          </div>
-
-          <div class="glass-panel incident-kpi-card">
-            <span class="incident-kpi-label">Mean Time to Resolve</span>
-            <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="mttrVal">~ 58s</div>
-            <span class="incident-kpi-sub">Average probe & container MTTR</span>
-          </div>
-
-          <div class="glass-panel incident-kpi-card">
-            <span class="incident-kpi-label">Audited Incidents</span>
-            <div class="incident-kpi-val" id="totalIncidentsCountVal">0</div>
-            <span class="incident-kpi-sub">Persisted in tamper-proof SQLite audit trail</span>
-          </div>
-        </div>
-
-        <!-- Modern Incident Feed Container -->
-        <div id="incidentsFeedContainer" class="incidents-feed">
-          <!-- Dynamically populated incident cards -->
-        </div>
-      </section>
-
-      <!-- ── TAB 6: SETTINGS ─────────────────────────────────────────────── -->
-      <section id="tab-settings" class="tab-content">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">System & Alert Routing</h2>
-            <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">Manage Telegram notification channels, topic routing, and server identity</p>
-          </div>
-        </div>
-
-        <div class="settings-grid">
-          <!-- Fallback & Identity Card -->
-          <div class="glass-panel" style="padding: 24px;">
-            <h3 style="font-size: 16px; margin-bottom: 6px; font-weight: 600;">Default Fallback Channel</h3>
-            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
-              Used when an alert does not match any specialized routing rule below.
-            </p>
-            <form id="settingsForm">
-              <div class="form-group">
-                <label class="form-label">Default Telegram Chat ID</label>
-                <input type="text" id="settingAlertChatId" class="form-input" placeholder="-100xxxxxxxxx" required>
+    <div class="app-layout">
+      <!-- ── Left Sidebar Navigation (Sendrin Console Pattern) ──────────────── -->
+      <aside id="appSidebar" class="sidebar">
+        <!-- Sidebar Brand -->
+        <div class="sidebar-header">
+          <a href="#" class="sidebar-brand" id="sidebarBrandLink" title="OpsPilot Command Center">
+            <div class="brand-icon-box">🚀</div>
+            <div class="brand-title-wrap">
+              <span class="brand-name">OpsPilot <span class="gradient-text">2.0</span></span>
+              <div class="brand-meta-row">
+                <span class="brand-badge-prod">PROD</span>
+                <span class="brand-version">v0.4.0</span>
               </div>
-              <div class="form-group">
-                <label class="form-label">Node Identifier</label>
-                <input type="text" id="settingServerName" class="form-input" disabled style="opacity: 0.7; cursor: not-allowed;">
-              </div>
-              <button type="submit" class="btn btn-primary btn-sm">💾 Save Default Channel</button>
-            </form>
+            </div>
+          </a>
+          <button id="sidebarCollapseBtn" class="sidebar-toggle-btn" title="Toggle Sidebar (⌘B)" aria-label="Toggle Sidebar">«</button>
+        </div>
+
+        <!-- Sidebar Host Info Card -->
+        <div class="sidebar-host-pill">
+          <div class="host-name-box">
+            <span class="status-dot green pulse-beacon" id="globalStatusDot"></span>
+            <span>Host: <strong id="serverNameLabel">node-01</strong></span>
+          </div>
+          <span class="host-latency-tag">12ms</span>
+        </div>
+
+        <!-- Sidebar Navigation Groups -->
+        <div class="sidebar-nav-container">
+          <!-- Group 1: Monitoring & Fleet -->
+          <div>
+            <div class="sidebar-group-label">Core Monitoring</div>
+            <ul class="sidebar-nav-list">
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn active" data-tab="overview" data-tooltip="Overview & Telemetry">
+                  <span class="sidebar-link-icon">⚡</span>
+                  <span>Overview</span>
+                </button>
+              </li>
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn" data-tab="fleet" data-tooltip="Docker Service Fleet">
+                  <span class="sidebar-link-icon">🐳</span>
+                  <span>Docker Fleet</span>
+                  <span class="sidebar-badge tab-badge" id="navFleetCount">0</span>
+                </button>
+              </li>
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn" data-tab="probes" data-tooltip="Service Health">
+                  <span class="sidebar-link-icon">🌐</span>
+                  <span>Service Health</span>
+                  <span class="sidebar-badge tab-badge" id="navProbesCount">0</span>
+                </button>
+              </li>
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn" data-tab="incidents" data-tooltip="Incident History">
+                  <span class="sidebar-link-icon">🚨</span>
+                  <span>Incidents</span>
+                  <span class="sidebar-badge tab-badge" id="navIncidentsCount">0</span>
+                </button>
+              </li>
+            </ul>
           </div>
 
-          <!-- Alert Routing Matrix Header & Card -->
-          <div class="glass-panel" style="padding: 24px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+          <!-- Group 2: Governance & Config -->
+          <div>
+            <div class="sidebar-group-label">Governance & Config</div>
+            <ul class="sidebar-nav-list">
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn" data-tab="domains" data-tooltip="SSL & Domain Governance">
+                  <span class="sidebar-link-icon">🔒</span>
+                  <span>SSL & Domains</span>
+                  <span class="sidebar-badge tab-badge" id="navDomainsCount">0</span>
+                </button>
+              </li>
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn" data-tab="renewals" data-tooltip="Billing & Client Renewals">
+                  <span class="sidebar-link-icon">💳</span>
+                  <span>Billing & Renewals</span>
+                  <span class="sidebar-badge tab-badge" id="navRenewalsCount">0</span>
+                </button>
+              </li>
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link tab-btn" data-tab="settings" data-tooltip="Settings, AI Engine & Alert Routing">
+                  <span class="sidebar-link-icon">⚙️</span>
+                  <span>Settings & AI</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Group 3: Intelligence & Automation -->
+          <div>
+            <div class="sidebar-group-label">Intelligence & Tools</div>
+            <ul class="sidebar-nav-list">
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link" id="openAiDiagBtn" data-tooltip="AI SRE Diagnostics" style="border: 1px dashed rgba(6,182,212,0.3);">
+                  <span class="sidebar-link-icon">🤖</span>
+                  <span>AI Diagnostics</span>
+                  <span class="badge-ai">AI RCA</span>
+                </button>
+              </li>
+              <li class="sidebar-nav-item">
+                <button class="sidebar-link" id="quickDockerPruneBtn" data-tooltip="Prune Docker Cache">
+                  <span class="sidebar-link-icon">🧹</span>
+                  <span>Docker Prune</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Sidebar Footer -->
+        <div class="sidebar-footer">
+          <!-- Mini Telemetry Meter -->
+          <div class="sidebar-telemetry-box">
+            <div class="telemetry-row">
+              <span>CPU Load</span>
+              <span id="sidebarCpuVal">0%</span>
+            </div>
+            <div class="telemetry-bar-bg">
+              <div id="sidebarCpuBar" class="telemetry-bar-fill fill-emerald" style="width: 0%;"></div>
+            </div>
+            <div class="telemetry-row" style="margin-top: 4px;">
+              <span>Memory</span>
+              <span id="sidebarRamVal">0%</span>
+            </div>
+            <div class="telemetry-bar-bg">
+              <div id="sidebarRamBar" class="telemetry-bar-fill fill-indigo" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- User Card -->
+          <div class="sidebar-user-card">
+            <div class="user-info-wrap">
+              <div class="user-avatar-circle">OP</div>
+              <div class="user-info-text">
+                <span class="user-name-label">Admin Operator</span>
+                <span class="user-role-label">Platform SRE</span>
+              </div>
+            </div>
+            <button id="logoutBtn" class="btn-sidebar-logout" title="Sign Out">
+              🚪
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ── Main Layout View ─────────────────────────────────────────────── -->
+      <div id="mainLayoutArea" class="main-layout">
+        <!-- Top App Bar -->
+        <header class="top-header">
+          <div class="top-header-left">
+            <button id="topSidebarToggleBtn" class="top-sidebar-btn" title="Toggle Sidebar (⌘B)" aria-label="Toggle Sidebar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+              </svg>
+            </button>
+            <div class="breadcrumbs">
+              <span class="breadcrumb-root">OpsPilot</span>
+              <span class="breadcrumb-sep">/</span>
+              <span id="currentBreadcrumbTab" class="breadcrumb-active">Overview & Telemetry</span>
+            </div>
+          </div>
+
+          <!-- Global Search & Command Bar -->
+          <div class="global-search-wrap">
+            <span class="global-search-icon">🔍</span>
+            <input type="text" id="globalQuickSearch" class="global-search-input" placeholder="Search containers, endpoints, renewals... (⌘K)">
+            <span class="global-search-shortcut">⌘K</span>
+          </div>
+
+          <!-- Top Actions -->
+          <div class="top-header-right">
+            <button class="btn btn-primary btn-sm" onclick="openAiRcaModal()" title="Run AI SRE Root Cause Diagnosis" style="gap: 5px; padding: 5px 12px; font-size: 12px;">
+              <span>⚡</span><span>AI RCA</span>
+            </button>
+            <button id="manualSyncBtn" class="btn btn-secondary btn-sm" title="Instant synchronize all telemetry">
+              <span>↻ Sync</span>
+            </button>
+            <button id="refreshTimerBtn" class="btn btn-secondary btn-sm" title="Click to pause/resume auto-refresh">
+              ⏱ <span id="refreshTimerCountdown">5s</span>
+            </button>
+            <button id="themeToggleBtn" class="btn btn-secondary btn-sm" title="Toggle Light/Dark Theme" style="padding: 6px 10px;">
+              <span id="themeIcon">🌙</span>
+            </button>
+            <div class="sidebar-host-pill" style="margin: 0; padding: 5px 10px; background: var(--bg-surface-elevated);">
+              <span class="status-dot green"></span>
+              <span style="font-size: 11.5px; font-weight: 600;">node-01</span>
+            </div>
+          </div>
+        </header>
+
+        <!-- Main Content Wrapper -->
+        <main class="content-wrapper">
+
+          <!-- ── TAB 1: OVERVIEW ───────────────────────────────────────────── -->
+          <section id="tab-overview" class="tab-content active">
+
+            <!-- 1. Compact Ops Command Header Bar -->
+            <div class="overview-header-bar glass-panel">
+              <div class="overview-header-left">
+                <div class="host-identity-badge">
+                  <span class="status-dot green" id="globalHostDot"></span>
+                  <span class="host-node-name" id="overviewHostName">node-01</span>
+                  <span class="host-env-pill" id="overviewEnvBadge">PROD</span>
+                </div>
+                <div class="overall-status-pill" id="overallStatusContainer">
+                  <span class="status-dot green pulse-beacon" id="heroStatusDot"></span>
+                  <span id="heroStatusTitle" class="overall-status-text">All Systems Operational</span>
+                  <span class="badge badge-running" id="overallHealthBadge">100% HEALTH</span>
+                </div>
+              </div>
+
+              <div class="overview-header-right">
+                <span class="overview-last-updated" id="overviewLastUpdated">
+                  <span>⏱ Last updated: <strong id="lastUpdatedTime">Just now</strong></span>
+                </span>
+                <button class="btn btn-secondary btn-sm" onclick="refreshAll()" title="Refresh telemetry">
+                  🔄 Refresh (<span id="overviewRefreshTicker">5s</span>)
+                </button>
+              </div>
+            </div>
+
+            <!-- Attention Alert Banner (Revealed only when degraded, down, or active incidents) -->
+            <div id="attentionAlertBanner" class="attention-alert-bar" style="display: none;">
+              <div class="attention-alert-left">
+                <span id="attentionAlertIcon" class="attention-icon">⚠️</span>
+                <div>
+                  <div id="attentionAlertTitle" class="attention-title">Attention Required</div>
+                  <div id="attentionAlertDesc" class="attention-desc">Service health checks reporting anomalies.</div>
+                </div>
+              </div>
+              <div class="attention-alert-actions">
+                <button class="btn btn-danger btn-sm" id="attentionActionBtn" onclick="switchTab('probes')">Inspect Services →</button>
+              </div>
+            </div>
+
+            <!-- Top-Level AI SRE Copilot Command Strip -->
+            <div class="glass-panel ai-copilot-top-strip">
+              <div class="ai-strip-content">
+                <div class="ai-strip-icon">🤖</div>
+                <div class="ai-strip-info">
+                  <div class="ai-strip-title-row">
+                    <span class="ai-strip-title">AI SRE Copilot</span>
+                    <span class="badge-ai">AUTONOMOUS RCA</span>
+                  </div>
+                  <p class="ai-strip-desc">
+                    Instant AI diagnostics on Docker logs, socket drops, and latency anomalies.
+                  </p>
+                </div>
+              </div>
+              <div class="ai-strip-actions">
+                <button class="btn btn-primary btn-sm" onclick="openAiRcaModal()" style="gap: 6px;">
+                  ⚡ Instant Scan
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="switchTab('settings')" title="Configure AI Provider & Model">
+                  ⚙️ Config
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. Four Clean Metric Cards -->
+            <div class="metrics-grid">
+              <!-- CPU Card -->
+              <div class="glass-panel metric-card">
+                <div class="metric-card-header">
+                  <span class="metric-card-title">Processor Load</span>
+                  <span class="metric-trend-pill" id="cpuCoresPill">CPU</span>
+                </div>
+                <div class="metric-value-row">
+                  <span class="metric-main-value" id="cpuMetricVal">0%</span>
+                  <span class="metric-sub-value" id="loadAvgVal">Load: 0.00, 0.00</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill fill-indigo" id="cpuProgressBar" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <!-- Memory Card -->
+              <div class="glass-panel metric-card">
+                <div class="metric-card-header">
+                  <span class="metric-card-title">Memory Usage</span>
+                  <span class="metric-trend-pill">RAM</span>
+                </div>
+                <div class="metric-value-row">
+                  <span class="metric-main-value" id="ramMetricVal">0%</span>
+                  <span class="metric-sub-value" id="ramUsedTotalVal">0 GB / 0 GB</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill fill-purple" id="ramProgressBar" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <!-- Storage Card -->
+              <div class="glass-panel metric-card">
+                <div class="metric-card-header">
+                  <span class="metric-card-title">Storage (Root /)</span>
+                  <span class="metric-trend-pill">NVMe</span>
+                </div>
+                <div class="metric-value-row">
+                  <span class="metric-main-value" id="diskMetricVal">0%</span>
+                  <span class="metric-sub-value" id="diskFreeVal">Free: 0 GB</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill fill-cyan" id="diskProgressBar" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <!-- Availability Card -->
+              <div class="glass-panel metric-card">
+                <div class="metric-card-header">
+                  <span class="metric-card-title">Service Availability</span>
+                  <span class="metric-trend-pill" id="availPeriodLabel">Active Checks</span>
+                </div>
+                <div class="metric-value-row">
+                  <span class="metric-main-value" id="fleetHealthyRate">100%</span>
+                  <span class="metric-sub-value" id="uptimeVal">Host Uptime: --</span>
+                </div>
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-fill fill-emerald" id="availProgressBar" style="width: 100%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3 & 4. Main Area (Service Health Table & Incidents) + Secondary Column (Certs & Renewals) -->
+            <div class="overview-dual-deck">
+              <!-- Main Area (Left Column ~62%) -->
+              <div class="overview-deck-left">
+
+                <!-- Service Health Table Card -->
+                <div class="glass-panel overview-deck-card">
+                  <div class="overview-deck-card-header">
+                    <div>
+                      <span class="overview-deck-card-title">Service Health & Latency Matrix</span>
+                      <p style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0 0;">
+                        Live socket verification, response codes, and network latency
+                      </p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('probes')">All Services →</button>
+                  </div>
+
+                  <div class="overview-table-wrap">
+                    <table class="overview-compact-table" id="overviewProbesTable">
+                      <thead>
+                        <tr>
+                          <th>Service</th>
+                          <th>Status</th>
+                          <th>Latency</th>
+                          <th style="text-align: right;">Last Checked</th>
+                        </tr>
+                      </thead>
+                      <tbody id="overviewProbesTbody">
+                        <!-- Rendered dynamically via app.js -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Recent Incidents Feed Card -->
+                <div class="glass-panel overview-deck-card">
+                  <div class="overview-deck-card-header">
+                    <div>
+                      <span class="overview-deck-card-title">Recent System Incidents</span>
+                      <p style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0 0;">
+                        Reliability alerts and autonomous remediation log
+                      </p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('incidents')">View History →</button>
+                  </div>
+                  <div id="overviewIncidentsContainer">
+                    <div style="color: var(--text-muted); font-size: 13.5px; text-align: center; padding: 20px 0;">
+                      ✅ No active incidents. All services operating normally.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Secondary Column (Right Column ~38%) -->
+              <div class="overview-deck-right">
+                <!-- SSL Expiry Watchlist -->
+                <div class="glass-panel overview-deck-card">
+                  <div class="overview-deck-card-header">
+                    <span class="overview-deck-card-title">SSL Certificate Expiry</span>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('domains')">Inspect All →</button>
+                  </div>
+                  <div id="overviewDomainsRadar" class="overview-radar-list">
+                    <!-- Populated dynamically via app.js -->
+                  </div>
+                </div>
+
+                <!-- Upcoming Renewals Horizon -->
+                <div class="glass-panel overview-deck-card">
+                  <div class="overview-deck-card-header">
+                    <span class="overview-deck-card-title">Upcoming Billing & Renewals</span>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('renewals')">Manage →</button>
+                  </div>
+                  <div id="overviewRenewalsHorizon" class="overview-radar-list">
+                    <!-- Populated dynamically via app.js -->
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. Lower Section: Container Fleet Details -->
+            <div class="glass-panel overview-fleet-deck" style="margin-top: 24px;">
+              <div class="overview-deck-card-header">
+                <div>
+                  <span class="overview-deck-card-title">Docker Service Fleet Status</span>
+                  <p style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0 0;">
+                    Real-time container state, healthchecks, and lifecycle actions
+                  </p>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span class="badge badge-running" id="overviewFleetRunningCount">0 RUNNING</span>
+                  <button class="btn btn-secondary btn-sm" onclick="switchTab('fleet')">Fleet Manager →</button>
+                </div>
+              </div>
+
+              <div class="overview-table-wrap">
+                <table class="overview-compact-table" id="overviewFleetTable">
+                  <thead>
+                    <tr>
+                      <th>Container Service</th>
+                      <th>Image</th>
+                      <th>Status</th>
+                      <th>Health</th>
+                      <th style="text-align: right;">Quick Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overviewFleetTbody">
+                    <!-- Populated dynamically via app.js -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </section>
+
+          <!-- ── TAB 2: DOCKER FLEET ───────────────────────────────────────── -->
+          <section id="tab-fleet" class="tab-content">
+            <div class="section-header">
+              <h2 class="section-title">
+                Docker Service Fleet
+                <span class="badge badge-running" id="fleetRunningBadge">0 RUNNING</span>
+              </h2>
+              <div class="filter-bar">
+                <input type="text" id="fleetSearchInput" class="search-input" placeholder="Filter containers (e.g. gns, iam, growixa)...">
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn active" data-filter="all">All</button>
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="running">Running</button>
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="exited">Exited</button>
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="snoozed">Snoozed</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="fleetCardsGrid" class="fleet-grid">
+              <!-- Dynamically generated container cards -->
+            </div>
+          </section>
+
+          <!-- ── TAB 3: PROBES ────────────────────────────────────────────── -->
+          <section id="tab-probes" class="tab-content">
+            <div class="section-header">
               <div>
-                <h3 style="font-size: 16px; margin-bottom: 6px; font-weight: 600;">Multi-Channel Alert Routing Matrix</h3>
-                <p style="font-size: 13px; color: var(--text-muted);">
-                  Route alerts to specific Telegram groups or channels based on category or target keywords (e.g. Foodio, Billing, Containers).
+                <h2 class="section-title">Service Health & Uptime Checks</h2>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+                  High-frequency socket health checks, response latency metrics, and HTTP status verification
                 </p>
               </div>
-              <button class="btn btn-primary btn-sm" id="openAddRouteBtn">+ Add Alert Route</button>
+              <div class="filter-bar">
+                <input type="text" id="probesSearchInput" class="search-input" placeholder="Filter services (e.g. iam, api, growixa)...">
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary btn-sm probe-filter-btn active" data-filter="all">All</button>
+                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="healthy">Operational</button>
+                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="failing">Degraded</button>
+                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="paused">Paused</button>
+                </div>
+                <button class="btn btn-primary btn-sm" id="openAddProbeBtn">+ Add Service Health</button>
+              </div>
             </div>
 
-            <!-- Routes Container -->
-            <div id="alertRoutesContainer" class="routes-grid">
-              <!-- Dynamically populated routes -->
+            <!-- Probe KPI Stats Bar -->
+            <div class="probe-kpi-grid">
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Monitored Endpoints</span>
+                <div class="incident-kpi-val" id="probesKpiTotal">0</div>
+                <span class="incident-kpi-sub">Continuous health checks</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Operational (200 OK)</span>
+                <div class="incident-kpi-val" style="color: var(--color-success);" id="probesKpiHealthy">0</div>
+                <span class="incident-kpi-sub">Serving requests normally</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Degraded / Outage</span>
+                <div class="incident-kpi-val" style="color: var(--color-danger);" id="probesKpiFailing">0</div>
+                <span class="incident-kpi-sub">Requires operator triage</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Global Average Latency</span>
+                <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="probesKpiLatency">-- ms</div>
+                <span class="incident-kpi-sub">Across all endpoints</span>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
 
+            <div id="probesListContainer" class="probe-list">
+              <!-- Dynamically generated probes -->
+            </div>
+          </section>
 
-    </main>
+          <!-- ── TAB: SSL & DOMAINS ────────────────────────────────────────── -->
+          <section id="tab-domains" class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">SSL Certificates & Domain Governance</h2>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+                  Real-time TLS certificate expiration tracking, cipher inspection, and domain renewal monitoring
+                </p>
+              </div>
+              <div class="filter-bar">
+                <input type="text" id="domainsSearchInput" class="search-input" placeholder="Filter domains (e.g. auth, api, sendrin)...">
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary btn-sm domain-filter-btn active" data-filter="all">All</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="valid">Valid</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="expiring">Expiring Soon</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="invalid">Invalid</button>
+                </div>
+                <button class="btn btn-primary btn-sm" id="openAddDomainBtn">+ Track Domain</button>
+              </div>
+            </div>
+
+            <!-- Domain KPI Stats Bar -->
+            <div class="incident-kpi-grid">
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Tracked Domains</span>
+                <div class="incident-kpi-val" id="totalDomainsVal">0</div>
+                <span class="incident-kpi-sub">Active SSL TLS monitoring</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Valid Certificates</span>
+                <div class="incident-kpi-val" style="color: var(--color-success);" id="validCertsVal">0</div>
+                <span class="incident-kpi-sub">Trusted by major root CAs</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Expiring Soon</span>
+                <div class="incident-kpi-val" style="color: var(--color-warning);" id="expiringSoonCertsVal">0</div>
+                <span class="incident-kpi-sub">Less than 30 days remaining</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Earliest Expiry</span>
+                <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="nextCertExpiryVal">--</div>
+                <span class="incident-kpi-sub">Nearest certificate renewal window</span>
+              </div>
+            </div>
+
+            <div id="domainsGridContainer" class="domains-grid">
+              <!-- Dynamically populated domain cards -->
+            </div>
+          </section>
+
+          <!-- ── TAB 4: RENEWALS & BILLING ─────────────────────────────────── -->
+          <section id="tab-renewals" class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Renewals & Client Billing</h2>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+                  Track upcoming cloud VPS hosting, domain portfolios, SaaS subscriptions, and automated renewal horizons
+                </p>
+              </div>
+              <div class="filter-bar">
+                <input type="text" id="renewalsSearchInput" class="search-input" placeholder="Search renewals (e.g. OVH, Sendrin, SSL)...">
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn active" data-filter="all">All</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="vps">Cloud VPS</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="domain">Domains</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="ssl">SSL Certs</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="saas">SaaS</button>
+                </div>
+                <button class="btn btn-primary btn-sm" id="openAddRenewalBtn">+ Add Renewal / Invoice</button>
+              </div>
+            </div>
+
+            <!-- Financial KPI Stats Bar -->
+            <div class="renewals-kpi-grid">
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Active Subscriptions</span>
+                <div class="incident-kpi-val" id="renKpiActive">0 Active</div>
+                <span class="incident-kpi-sub">100% on schedule</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Monthly Run Rate</span>
+                <div class="incident-kpi-val" style="color: var(--accent-primary);" id="renKpiMonthly">₹0 / mo</div>
+                <span class="incident-kpi-sub">Recurring monthly commitments</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Upcoming (30 Days)</span>
+                <div class="incident-kpi-val" style="color: var(--color-warning);" id="renKpiUpcoming">0 Due</div>
+                <span class="incident-kpi-sub">Requires invoice clearance</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Annual Projected</span>
+                <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="renKpiAnnual">₹0 / yr</div>
+                <span class="incident-kpi-sub">Infrastructure annual budget</span>
+              </div>
+            </div>
+
+            <!-- Dual-Deck Layout: Renewals Bento Grid + Schedule Sidebar -->
+            <div class="renewals-layout-deck">
+              <!-- Left Grid -->
+              <div id="renewalsGridContainer" class="renewals-grid">
+                <!-- Dynamically generated renewal cards -->
+              </div>
+
+              <!-- Right Sidebar: 12-Month Schedule Horizon -->
+              <div class="glass-panel renewals-timeline-sidebar">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+                  <h3 style="font-size: 15px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                    📅 Payment Schedule Horizon
+                  </h3>
+                  <span class="badge badge-running" style="font-size: 10px;">ACTIVE</span>
+                </div>
+                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.4;">
+                  Upcoming quarterly infrastructure billing cycles and invoice forecast.
+                </p>
+
+                <div id="renewalsTimelineContainer" style="display: flex; flex-direction: column; gap: 14px;">
+                  <!-- Populated dynamically via app.js -->
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── TAB 5: INCIDENTS ─────────────────────────────────────────── -->
+          <section id="tab-incidents" class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Incident Audit & Reliability History</h2>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+                  Real-time audit log of infrastructure anomalies, automatic failovers, and autonomous recovery events
+                </p>
+              </div>
+              <div class="filter-bar">
+                <input type="text" id="incidentsSearchInput" class="search-input" placeholder="Filter by service, URL, or error...">
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-secondary btn-sm incident-filter-btn active" data-filter="all">All</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="active">Active</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="resolved">Resolved</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="critical">Critical</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Incident KPI Stats Bar -->
+            <div class="incident-kpi-grid">
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Active Incidents</span>
+                <div class="incident-kpi-val" id="activeIncidentsCountVal">
+                  <span class="status-dot green"></span> 0 Open
+                </div>
+                <span class="incident-kpi-sub">All monitored endpoints healthy</span>
+              </div>
+
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Autonomous Recovery</span>
+                <div class="incident-kpi-val" style="color: var(--color-success);" id="autoResolvedRateVal">100%</div>
+                <span class="incident-kpi-sub">Self-healed without manual intervention</span>
+              </div>
+
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Mean Time to Resolve</span>
+                <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="mttrVal">~ 58s</div>
+                <span class="incident-kpi-sub">Average probe & container MTTR</span>
+              </div>
+
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Audited Incidents</span>
+                <div class="incident-kpi-val" id="totalIncidentsCountVal">0</div>
+                <span class="incident-kpi-sub">Persisted in tamper-proof SQLite audit trail</span>
+              </div>
+            </div>
+
+            <!-- Modern Incident Feed Container -->
+            <div id="incidentsFeedContainer" class="incidents-feed">
+              <!-- Dynamically populated incident cards -->
+            </div>
+          </section>
+
+          <!-- ── TAB 6: SETTINGS & ROUTING MATRIX ─────────────────────────── -->
+          <section id="tab-settings" class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">System Settings & LLM Engine</h2>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+                  Configure AI Copilot providers (Gemini, Claude, OpenAI, Ollama), models, Telegram alert channels, and routing matrix
+                </p>
+              </div>
+            </div>
+
+            <div class="settings-grid" style="display: flex; flex-direction: column; gap: 24px;">
+              <!-- 🤖 OpsPilot AI Copilot & LLM Engine Settings Card -->
+              <div class="glass-panel" id="aiSettingsCard" style="padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                      <h3 style="font-size: 18px; font-weight: 700; margin: 0;">🤖 OpsPilot AI Copilot & Autonomous RCA Settings</h3>
+                      <span id="aiStatusBadge" class="badge badge-snoozed">Checking...</span>
+                    </div>
+                    <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+                      Configure your LLM provider (Google Gemini, OpenAI, Claude, or Ollama) to drive real-time root cause analysis and ChatOps recommendations.
+                    </p>
+                  </div>
+                </div>
+
+                <form id="aiSettingsForm">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                    <!-- Step 1: Provider Selection -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label class="form-label" for="aiProviderSelect">1. Select AI Provider</label>
+                      <select id="aiProviderSelect" class="form-select" required>
+                        <option value="gemini">Google Gemini (Recommended - Free Tier & Large Context)</option>
+                        <option value="openai">OpenAI (GPT-4o, o3-mini)</option>
+                        <option value="anthropic">Anthropic Claude (Claude 3.5 Sonnet)</option>
+                        <option value="ollama">Local Ollama / Private LLM</option>
+                      </select>
+                      <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;" id="aiProviderHint">
+                        Native direct Google Gemini API (gemini-1.5-flash, gemini-1.5-pro, etc.).
+                      </span>
+                    </div>
+
+                    <!-- Step 2: API Key with show/hide toggle -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label class="form-label" for="aiApiKeyInput" style="margin-bottom: 0;">2. API Key / Secret</label>
+                        <span id="aiKeyStatusHint" style="font-size: 11px; font-weight: 500;"></span>
+                      </div>
+                      <div class="ai-key-input-wrap">
+                        <input type="password" id="aiApiKeyInput" class="form-input" placeholder="Enter API Key (e.g. AIzaSy...)" style="padding-right: 42px;">
+                        <button type="button" id="toggleAiKeyVisibilityBtn" class="ai-key-toggle-btn" title="Toggle Show/Hide API Key">
+                          👁️
+                        </button>
+                      </div>
+                      <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
+                        🔒 Saved securely in local SQLite database. Leave blank to preserve existing key.
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Custom Base URL -->
+                  <div class="form-group" style="margin-bottom: 20px;">
+                    <label class="form-label" for="aiBaseUrlInput">Custom Base URL (Optional)</label>
+                    <input type="text" id="aiBaseUrlInput" class="form-input" placeholder="Leave empty for official API, or http://localhost:11434">
+                    <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 4px;">
+                      Used for Ollama, vLLM, Azure OpenAI or corporate reverse proxies.
+                    </span>
+                  </div>
+
+                  <!-- Test Key & Discover Models Callout Bar -->
+                  <div style="margin-bottom: 20px; padding: 14px 18px; background: rgba(99, 102, 241, 0.05); border: 1px dashed rgba(99, 102, 241, 0.35); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                      <div style="font-size: 13.5px; font-weight: 700; color: var(--text-primary);">Test Key & Discover Supported Models</div>
+                      <div style="font-size: 12px; color: var(--text-muted);">
+                        Verifies your API key directly and loads all authorized models into the dropdown below.
+                      </div>
+                    </div>
+                    <button type="button" id="fetchAiModelsBtn" class="btn btn-secondary btn-sm" style="background: var(--bg-card); font-weight: 600;">
+                      ⚡ Test Key & Fetch Models
+                    </button>
+                  </div>
+
+                  <!-- Live Test Result Banner -->
+                  <div id="aiTestResultBanner" class="ai-test-banner" style="display: none; margin-bottom: 20px;"></div>
+
+                  <!-- Step 3: Model Selector -->
+                  <div class="form-group" style="margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                      <label class="form-label" for="aiModelSelect" style="margin-bottom: 0;">3. Choose LLM Model</label>
+                      <span id="aiModelCountBadge" style="font-size: 11.5px; color: var(--accent-primary); font-weight: 600;"></span>
+                    </div>
+                    <select id="aiModelSelect" class="form-select" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600;">
+                      <!-- Populated dynamically via app.js -->
+                    </select>
+
+                    <!-- Custom Model Write-in (Hidden by default, shown if 'custom' is selected) -->
+                    <div id="aiCustomModelWrap" style="display: none; margin-top: 8px;">
+                      <input type="text" id="aiModelCustomInput" class="form-input" placeholder="Type custom model identifier (e.g. gemini-1.5-flash-latest)">
+                    </div>
+
+                    <!-- Hidden legacy input kept for backward compatibility -->
+                    <input type="hidden" id="aiModelInput" value="gemini-1.5-flash">
+
+                    <!-- Preset chips for 1-click select -->
+                    <div id="aiModelPresets" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                      <!-- Injected dynamically -->
+                    </div>
+                  </div>
+
+                  <!-- Enable Toggle -->
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding: 12px 16px; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+                    <input type="checkbox" id="aiEnabledCheckbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
+                    <label for="aiEnabledCheckbox" style="font-size: 13.5px; font-weight: 600; cursor: pointer; user-select: none;">
+                      Enable Autonomous AI Root Cause Analysis (RCA) & OpsPilot Copilot
+                    </label>
+                  </div>
+
+                  <!-- Action Buttons -->
+                  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                      <button type="submit" id="saveAiSettingsBtn" class="btn btn-primary btn-sm">
+                        💾 Save AI Configuration
+                      </button>
+                      <button type="button" id="testAiConnectionBtn" class="btn btn-secondary btn-sm" title="Send a test ping prompt to verify LLM inference">
+                        💬 Test Copilot Prompt
+                      </button>
+                    </div>
+                    <span id="aiSettingsSaveMessage" style="font-size: 12.5px; font-weight: 500;"></span>
+                  </div>
+
+                  <!-- Live Test Result Banner -->
+                  <div id="aiTestResultBanner" class="ai-test-banner" style="display: none;"></div>
+                </form>
+              </div>
+
+              <!-- Alert Routing Matrix Card -->
+              <div class="glass-panel" id="alertRoutingMatrixCard" style="padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+                  <div>
+                    <h3 style="font-size: 17px; margin-bottom: 4px; font-weight: 700;">Multi-Channel Alert Routing Matrix</h3>
+                    <p style="font-size: 13px; color: var(--text-muted);">
+                      Route alerts to specific Telegram groups or channels based on category or target keywords (e.g. Foodio, Billing, Containers).
+                    </p>
+                  </div>
+                  <button class="btn btn-primary btn-sm" id="openAddRouteBtn">+ Add Alert Route</button>
+                </div>
+
+                <!-- Routes Container -->
+                <div id="alertRoutesContainer" class="routes-grid">
+                  <!-- Dynamically populated routes -->
+                </div>
+              </div>
+
+              <!-- Fallback & Identity Card -->
+              <div class="glass-panel" style="padding: 24px;">
+                <h3 style="font-size: 17px; margin-bottom: 4px; font-weight: 700;">Default Fallback Channel</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+                  Used when an alert does not match any specialized routing rule above.
+                </p>
+                <form id="settingsForm">
+                  <div class="form-group">
+                    <label class="form-label">Default Telegram Chat ID</label>
+                    <input type="text" id="settingAlertChatId" class="form-input" placeholder="-100xxxxxxxxx" required>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Node Identifier</label>
+                    <input type="text" id="settingServerName" class="form-input" disabled style="opacity: 0.7; cursor: not-allowed;">
+                  </div>
+                  <button type="submit" class="btn btn-primary btn-sm">💾 Save Default Channel</button>
+                </form>
+              </div>
+            </div>
+          </section>
+
+        </main>
+      </div>
+    </div>
   </div>
 
   <!-- ── MODAL: Container Logs ────────────────────────────────────────────── -->
@@ -340,142 +928,164 @@
       <div class="modal-header">
         <div>
           <h3 id="logsModalTitle" style="font-size: 18px;">Container Logs</h3>
-          <p id="logsModalSubtitle" style="color: var(--text-muted); font-size: 12px; font-family: monospace;">Fetching...</p>
+          <p id="logsModalSubtitle" style="font-size: 12px; color: var(--text-muted);">Tail output from Docker</p>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <select id="logsTailSelect" class="search-input" style="min-width: 100px; padding: 4px 10px; font-size: 12px;">
-            <option value="50">50 lines</option>
-            <option value="100" selected>100 lines</option>
-            <option value="200">200 lines</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" id="copyLogsBtn">📋 Copy</button>
-          <button class="modal-close" onclick="closeModal('logsModal')">&times;</button>
-        </div>
+        <button class="modal-close" onclick="closeModal('logsModal')">&times;</button>
       </div>
-      <div id="logsTerminalContent" class="terminal-window">Loading stdout/stderr stream...</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <select id="logsTailSelect" class="form-select" style="width: 140px; padding: 6px 10px; font-size: 12px;">
+          <option value="50">Last 50 lines</option>
+          <option value="100" selected>Last 100 lines</option>
+          <option value="250">Last 250 lines</option>
+          <option value="500">Last 500 lines</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" id="copyLogsBtn">📋 Copy Output</button>
+      </div>
+      <div id="logsTerminalContent" class="terminal-window">Loading logs...</div>
     </div>
   </div>
 
-  <!-- ── MODAL: Confirm Restart ──────────────────────────────────────────── -->
+  <!-- ── MODAL: Confirm Restart ───────────────────────────────────────────── -->
   <div id="restartModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 style="font-size: 18px;">Confirm Container Restart</h3>
+        <h3 style="font-size: 18px;">Confirm Service Restart</h3>
         <button class="modal-close" onclick="closeModal('restartModal')">&times;</button>
       </div>
-      <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
-        Are you sure you want to restart container <strong id="restartContainerName" style="color: var(--text-primary);"></strong>?
-        This action will be recorded in the audit trail.
+      <p style="color: var(--text-secondary); margin-bottom: 20px;">
+        Are you sure you want to restart container <strong id="restartContainerName" style="color: var(--text-primary);">container</strong>?
+        This will briefly interrupt running workloads.
       </p>
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button class="btn btn-secondary btn-sm" onclick="closeModal('restartModal')">Cancel</button>
-        <button class="btn btn-danger btn-sm" id="confirmRestartBtn">Restart Container</button>
+        <button class="btn btn-secondary" onclick="closeModal('restartModal')">Cancel</button>
+        <button class="btn btn-danger" id="confirmRestartBtn">Restart Service</button>
       </div>
     </div>
   </div>
 
-  <!-- ── MODAL: Snooze Container ─────────────────────────────────────────── -->
+  <!-- ── MODAL: Snooze Container Alerts ────────────────────────────────────── -->
   <div id="snoozeModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
         <h3 style="font-size: 18px;">Snooze Alerts</h3>
         <button class="modal-close" onclick="closeModal('snoozeModal')">&times;</button>
       </div>
-      <p style="color: var(--text-secondary); margin-bottom: 18px; font-size: 14px;">
-        Silence health alerts for <strong id="snoozeContainerName" style="color: var(--text-primary);"></strong>:
+      <p style="color: var(--text-secondary); margin-bottom: 16px;">
+        Mute failure alerts for <strong id="snoozeContainerName" style="color: var(--text-primary);">container</strong> for:
       </p>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px;">
-        <button class="btn btn-secondary" onclick="submitSnooze('1h')">1 Hour</button>
-        <button class="btn btn-secondary" onclick="submitSnooze('6h')">6 Hours</button>
-        <button class="btn btn-secondary" onclick="submitSnooze('24h')">24 Hours</button>
-        <button class="btn btn-secondary" onclick="submitSnooze('forever')">Indefinitely</button>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button class="btn btn-secondary" onclick="confirmSnooze('1h')">⏱ Snooze 1 Hour</button>
+        <button class="btn btn-secondary" onclick="confirmSnooze('4h')">⏱ Snooze 4 Hours</button>
+        <button class="btn btn-secondary" onclick="confirmSnooze('24h')">⏱ Snooze 24 Hours</button>
+        <button class="btn btn-secondary" onclick="confirmSnooze('7d')">⏱ Snooze 7 Days</button>
+        <button class="btn btn-secondary" onclick="confirmSnooze('indefinite')">♾ Snooze Indefinitely</button>
       </div>
     </div>
   </div>
 
-  <!-- ── MODAL: Add Probe ────────────────────────────────────────────────── -->
+  <!-- ── MODAL: Add Probe ─────────────────────────────────────────────────── -->
   <div id="addProbeModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 style="font-size: 18px;">Register HTTP Probe</h3>
+        <h3 style="font-size: 18px;">Register Service Health Check</h3>
         <button class="modal-close" onclick="closeModal('addProbeModal')">&times;</button>
       </div>
       <form id="addProbeForm">
         <div class="form-group">
-          <label class="form-label">Probe Friendly Name</label>
-          <input type="text" id="probeNameInput" class="form-input" placeholder="e.g. Pulsar IP Client" required>
+          <label class="form-label">Service Name</label>
+          <input type="text" id="probeNameInput" class="form-input" placeholder="e.g. Identity Auth Gateway" required>
         </div>
         <div class="form-group">
-          <label class="form-label">HTTP / HTTPS URL</label>
-          <input type="url" id="probeUrlInput" class="form-input" placeholder="https://example.com/health" required>
+          <label class="form-label">Target URL</label>
+          <input type="url" id="probeUrlInput" class="form-input" placeholder="https://auth.iitdeveloper.com/health" required>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Expected Status</label>
-            <input type="number" id="probeExpectedStatusInput" class="form-input" value="200" required>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Timeout (seconds)</label>
-            <input type="number" id="probeTimeoutInput" class="form-input" value="5" min="1" max="30" required>
-          </div>
+        <div class="form-group">
+          <label class="form-label">Expected HTTP Status Code</label>
+          <input type="number" id="probeExpectedStatusInput" class="form-input" value="200" required>
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('addProbeModal')">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Save Probe</button>
+        <div class="form-group">
+          <label class="form-label">Timeout (Seconds)</label>
+          <input type="number" id="probeTimeoutInput" class="form-input" value="10" min="1" max="60" required>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('addProbeModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Service Check</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- ── MODAL: Add Renewal ──────────────────────────────────────────────── -->
+  <!-- ── MODAL: Add Domain / Certificate Tracker ─────────────────────────── -->
+  <div id="addDomainModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Track Domain & SSL Certificate</h3>
+        <button class="modal-close" onclick="closeModal('addDomainModal')">&times;</button>
+      </div>
+      <form id="addDomainForm">
+        <div class="form-group">
+          <label class="form-label">Domain Name or FQDN</label>
+          <input type="text" id="domainNameInput" class="form-input" placeholder="e.g. auth.iitdeveloper.com or sendrin.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Port</label>
+          <input type="number" id="domainPortInput" class="form-input" value="443" min="1" max="65535" required>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('addDomainModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="addDomainSubmitBtn">Probe & Track Certificate</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Add Renewal ───────────────────────────────────────────────── -->
   <div id="addRenewalModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 style="font-size: 18px;">Register Renewal / Client Billing</h3>
+        <h3 style="font-size: 18px;">Track Billing / Renewal</h3>
         <button class="modal-close" onclick="closeModal('addRenewalModal')">&times;</button>
       </div>
       <form id="addRenewalForm">
         <div class="form-group">
-          <label class="form-label">Title / Service Name</label>
-          <input type="text" id="renewalNameInput" class="form-input" placeholder="e.g. KnowledgeKingEdu Maintenance" required>
+          <label class="form-label">Service / Client Name</label>
+          <input type="text" id="renewalNameInput" class="form-input" placeholder="e.g. OVH VPS Cloud or Foodio Retainer" required>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Category</label>
-            <select id="renewalCategoryInput" class="form-input">
-              <option value="client_billing">Client Billing</option>
-              <option value="vps">VPS / Cloud Hosting</option>
-              <option value="domain">Domain Registration</option>
-              <option value="saas">SaaS Tool</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Due Date (YYYY-MM-DD)</label>
-            <input type="date" id="renewalDueDateInput" class="form-input" required>
-          </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select id="renewalCategoryInput" class="form-select">
+            <option value="domain">Domain Name</option>
+            <option value="vps">Server / VPS</option>
+            <option value="saas">SaaS / API Subscription</option>
+            <option value="client_retainer">Client Retainer</option>
+            <option value="ssl">SSL Certificate</option>
+            <option value="other">Other</option>
+          </select>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Amount (₹ INR)</label>
-            <input type="number" id="renewalAmountInput" class="form-input" placeholder="2500" step="any">
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Recurrence</label>
-            <select id="renewalRecurrenceInput" class="form-input">
-              <option value="yearly">Yearly</option>
-              <option value="monthly">Monthly</option>
-              <option value="none">One-time (None)</option>
-            </select>
-          </div>
+        <div class="form-group">
+          <label class="form-label">Amount & Currency</label>
+          <input type="text" id="renewalAmountInput" class="form-input" placeholder="e.g. $45.00 / month" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due Date</label>
+          <input type="date" id="renewalDueDateInput" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Recurrence Cycle</label>
+          <select id="renewalRecurrenceInput" class="form-select">
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="one_off">One-Off</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label">Notes</label>
-          <input type="text" id="renewalNotesInput" class="form-input" placeholder="Optional invoice notes or contact info...">
+          <input type="text" id="renewalNotesInput" class="form-input" placeholder="e.g. Auto-debit via Stripe">
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('addRenewalModal')">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Save Reminder</button>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('addRenewalModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Renewal</button>
         </div>
       </form>
     </div>
@@ -485,59 +1095,57 @@
   <div id="editRenewalModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 style="font-size: 18px;">Edit Renewal / Client Billing</h3>
+        <h3 style="font-size: 18px;">Edit Renewal Entry</h3>
         <button class="modal-close" onclick="closeModal('editRenewalModal')">&times;</button>
       </div>
       <form id="editRenewalForm">
         <input type="hidden" id="editRenewalId">
+        
         <div class="form-group">
-          <label class="form-label">Title / Service Name</label>
+          <label class="form-label">Service / Client Name</label>
           <input type="text" id="editRenewalNameInput" class="form-input" required>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Category</label>
-            <select id="editRenewalCategoryInput" class="form-input">
-              <option value="client_billing">Client Billing</option>
-              <option value="vps">VPS / Cloud Hosting</option>
-              <option value="domain">Domain Registration</option>
-              <option value="saas">SaaS Tool</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Due Date (YYYY-MM-DD)</label>
-            <input type="date" id="editRenewalDueDateInput" class="form-input" required>
-          </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select id="editRenewalCategoryInput" class="form-select">
+            <option value="domain">Domain Name</option>
+            <option value="vps">Server / VPS</option>
+            <option value="saas">SaaS / API Subscription</option>
+            <option value="client_retainer">Client Retainer</option>
+            <option value="ssl">SSL Certificate</option>
+            <option value="other">Other</option>
+          </select>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Amount (₹ INR)</label>
-            <input type="number" id="editRenewalAmountInput" class="form-input" step="any">
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">Recurrence</label>
-            <select id="editRenewalRecurrenceInput" class="form-input">
-              <option value="yearly">Yearly</option>
-              <option value="monthly">Monthly</option>
-              <option value="none">One-time (None)</option>
-            </select>
-          </div>
+        <div class="form-group">
+          <label class="form-label">Amount & Currency</label>
+          <input type="text" id="editRenewalAmountInput" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due Date</label>
+          <input type="date" id="editRenewalDueDateInput" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Recurrence Cycle</label>
+          <select id="editRenewalRecurrenceInput" class="form-select">
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="one_off">One-Off</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label">Notes</label>
           <input type="text" id="editRenewalNotesInput" class="form-input">
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('editRenewalModal')">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Update Reminder</button>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('editRenewalModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Renewal</button>
         </div>
       </form>
     </div>
   </div>
 
-
-  <!-- ── MODAL: Add / Edit Alert Route ─────────────────────────────────── -->
+  <!-- ── MODAL: Alert Route ───────────────────────────────────────────────── -->
   <div id="routeModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
@@ -553,47 +1161,127 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label">Telegram Chat ID</label>
-          <input type="text" id="routeChatIdInput" class="form-input" placeholder="e.g. -1004407586766" required>
-          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Group, Channel, or User ID. Make sure the bot is added as an admin/member.</p>
+          <label class="form-label">Destination Telegram Chat ID</label>
+          <input type="text" id="routeChatIdInput" class="form-input" placeholder="-100xxxxxxxxx" required>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Alert Categories (Select 1 or more)</label>
-          <div class="category-checkboxes">
-            <label class="checkbox-pill"><input type="checkbox" id="catAll" value="all"> <span>All Alerts</span></label>
-            <label class="checkbox-pill"><input type="checkbox" id="catContainers" value="containers"> <span>🚢 Containers</span></label>
-            <label class="checkbox-pill"><input type="checkbox" id="catProbes" value="probes"> <span>🌐 Probes</span></label>
-            <label class="checkbox-pill"><input type="checkbox" id="catBilling" value="billing"> <span>💳 Billing & Renewals</span></label>
-            <label class="checkbox-pill"><input type="checkbox" id="catSystem" value="system"> <span>🖥️ System & Prune</span></label>
-            <label class="checkbox-pill"><input type="checkbox" id="catSsl" value="ssl"> <span>🔒 SSL Expiry</span></label>
+          <label class="form-label">Monitored Categories</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="catAll" value="*"> 🌟 All Categories
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="catContainers" value="container"> 🐳 Containers
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="catProbes" value="probe"> 🌐 Service Health
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="catSsl" value="ssl"> 🔒 SSL Expiration
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="catBilling" value="billing"> 💳 Billing Renewals
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="catSystem" value="system"> ⚡ CPU / RAM Load
+            </label>
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Target / Event Keyword Filter (Optional)</label>
-          <input type="text" id="routeEventsInput" class="form-input" placeholder="e.g. foodio, caddy, probe_failed (comma-separated)">
-          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-            Filter by specific container, URL, or client name. Leave blank to receive all events in the selected categories.
-          </p>
+          <label class="form-label">Target Name Filter (Optional, comma-separated)</label>
+          <input type="text" id="routeEventsInput" class="form-input" placeholder="e.g. foodio, iam, api (blank for all)">
         </div>
 
-        <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
-          <input type="checkbox" id="routeEnabledInput" checked style="width: 18px; height: 18px; accent-color: var(--accent-primary);">
-          <label for="routeEnabledInput" style="font-size: 14px; font-weight: 500; cursor: pointer;">Enable this alert route</label>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-top: 14px;">
+          <input type="checkbox" id="routeEnabledInput" checked style="width: 16px; height: 16px; cursor: pointer;">
+          <label for="routeEnabledInput" style="font-size: 13px; font-weight: 500; cursor: pointer;">Route active & enabled</label>
         </div>
 
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal('routeModal')">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm" id="routeSubmitBtn">Save Route</button>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('routeModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="routeSubmitBtn">Save Route</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Floating Toast Notifications -->
-  <div id="toastContainer" class="toast-container"></div>
+  <!-- ── MODAL: AI RCA Diagnostics (Sendrin SRE Engine) ───────────────────── -->
+  <div id="aiDiagModal" class="modal-overlay">
+    <div class="modal-box modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 style="font-size: 18px; display: flex; align-items: center; gap: 8px;">
+            <span>🤖</span> OpsPilot AI SRE Root Cause Analysis
+          </h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+            Autonomous incident diagnosis, evidence timeline, and recommended safe remediation
+          </p>
+        </div>
+        <button class="modal-close" onclick="closeModal('aiDiagModal')">&times;</button>
+      </div>
 
+      <form id="aiDiagForm">
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Target Workload / Container / Pod</label>
+            <span id="aiDiagStatusBadge" class="badge badge-running" style="display: none; font-size: 11px;">Active</span>
+          </div>
+
+          <!-- Quick Search Filter -->
+          <div style="position: relative; margin-bottom: 8px;">
+            <input type="text" id="aiDiagSearchInput" class="form-input" placeholder="🔍 Search & filter containers, pods, or endpoints..." autocomplete="off" style="padding-left: 34px;">
+            <span style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 13px; opacity: 0.6; pointer-events: none;">⚡</span>
+          </div>
+
+          <!-- Quick Pick Chips for degraded or active workloads -->
+          <div id="aiDiagQuickChips" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; min-height: 24px;"></div>
+
+          <select id="aiDiagServiceSelect" class="form-select" required>
+            <option value="">-- Choose Container or Service --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Observed Status (Docker / Kubernetes / Probe)</label>
+          <input type="text" id="aiDiagStatusInput" class="form-input" value="running" placeholder="e.g. running, exited, CrashLoopBackOff, 502 Bad Gateway">
+        </div>
+
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Tail Logs & Evidence (Auto-populated for RCA)</label>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span id="aiDiagLogStatusMsg" style="font-size: 11px; color: var(--text-muted);"></span>
+              <button type="button" id="aiFetchLogsBtn" class="btn btn-secondary btn-sm">🔄 Refresh Tail Logs</button>
+            </div>
+          </div>
+          <textarea id="aiDiagLogsInput" class="form-textarea" rows="7" placeholder="Logs are automatically fetched when you choose a container, or you can paste pod/container logs directly here..." style="font-family: 'JetBrains Mono', monospace; font-size: 12px;"></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('aiDiagModal')">Close</button>
+          <button type="submit" class="btn btn-primary" id="aiDiagSubmitBtn">
+            <span>✨ Run AI Root Cause Diagnosis</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- Diagnosis Report Container -->
+      <div id="aiDiagResultContainer" style="display: none; margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h4 style="font-size: 15px; font-weight: 700; color: var(--accent-cyan);">📋 Diagnosis & Remediation Report</h4>
+          <button id="copyAiReportBtn" class="btn btn-secondary btn-sm">📋 Copy Report</button>
+        </div>
+        <div id="aiDiagResultContent" class="ai-diagnosis-result"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast Notifications ───────────────────────────────────────────────── -->
+  <div id="toastContainer"></div>
+
+  <!-- Scripts -->
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -200,3 +200,180 @@ def test_settings_read_and_update_endpoint(auth_client):
     verify_res = auth_client.get("/api/settings")
     assert verify_res.status_code == 200
     assert verify_res.json()["alert_chat_id"] == "-100999888777"
+
+
+def test_docker_prune_endpoint(auth_client, monkeypatch):
+    """POST /api/docker/prune triggers docker resource cleanup."""
+    from opspilot.web import api
+
+    async def mock_prune(self):
+        return {"success": True, "reclaimed_mb": 142}
+
+    monkeypatch.setattr(api.SafeOperationExecutor, "prune_docker", mock_prune)
+    res = auth_client.post("/api/docker/prune")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["reclaimed_mb"] == 142
+
+
+def test_ai_rca_endpoint(auth_client):
+    """POST /api/ai/rca performs SRE Root Cause Analysis diagnosis."""
+    payload = {
+        "service_name": "growth-worker-prod",
+        "container_status": "exited",
+        "logs": "Fatal error: Out of memory. Killed process 124 (python). Exit code 137.",
+    }
+    res = auth_client.post("/api/ai/rca", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert "diagnosis" in data
+    assert "OOM" in data["diagnosis"] or "Memory" in data["diagnosis"]
+
+
+def test_domains_api_crud_and_check(auth_client, monkeypatch):
+    """Test full CRUD lifecycle and check endpoint for SSL domains."""
+    from opspilot.db import domains
+    from opspilot.monitor.ssl import SSLStatus
+
+    def mock_check(domain: str, port: int = 443, timeout: int = 5):
+        return SSLStatus(
+            domain=domain,
+            is_valid=True,
+            days_remaining=88,
+            expires_at="2026-04-01",
+            issuer="Let's Encrypt Authority",
+            error=None,
+        )
+
+    monkeypatch.setattr(domains, "check_domain_ssl", mock_check)
+
+    # 1. Add domain
+    add_payload = {
+        "domain": "api.testdomain.com",
+        "port": 443,
+    }
+    create_res = auth_client.post("/api/domains", json=add_payload)
+    assert create_res.status_code == 200
+    created = create_res.json()
+    assert created["success"] is True
+    domain_record = created["domain"]
+    assert domain_record["domain"] == "api.testdomain.com"
+    assert domain_record["is_valid"] is True
+    domain_id = domain_record["id"]
+
+    # 2. List domains
+    list_res = auth_client.get("/api/domains")
+    assert list_res.status_code == 200
+    all_domains = list_res.json()
+    assert any(d["id"] == domain_id for d in all_domains)
+
+    # 3. Trigger live check
+    check_res = auth_client.post(f"/api/domains/{domain_id}/check")
+    assert check_res.status_code == 200
+    assert check_res.json()["domain"]["domain"] == "api.testdomain.com"
+
+    # 4. Overview includes domains_total count
+    overview_res = auth_client.get("/api/overview")
+    assert overview_res.status_code == 200
+    assert overview_res.json()["counts"]["domains_total"] >= 1
+
+    # 5. Delete domain
+    del_res = auth_client.delete(f"/api/domains/{domain_id}")
+    assert del_res.status_code == 200
+    assert del_res.json()["success"] is True
+
+
+def test_ai_endpoints_lifecycle(auth_client, monkeypatch):
+    """Test AI status, RCA diagnosis, and Copilot endpoints."""
+    # 1. AI status
+    status_res = auth_client.get("/api/ai/status")
+    assert status_res.status_code == 200
+    assert "provider" in status_res.json()
+
+    # 2. Mock AIProvider.generate_response
+    async def mock_generate_response(self, system_prompt: str, user_prompt: str) -> str:
+        return "Root cause: Memory leak in worker process. Fix: restart container and increase heap."
+
+    monkeypatch.setattr("opspilot.web.api.AIProvider.generate_response", mock_generate_response)
+
+    # 3. Test RCA with mock key
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-gemini-key")
+    rca_res = auth_client.post(
+        "/api/ai/rca",
+        json={"service_name": "redis", "container_status": "running", "logs": "OOM killed process"},
+    )
+    assert rca_res.status_code == 200
+    assert rca_res.json()["success"] is True
+    assert "Memory leak" in rca_res.json()["diagnosis"]
+
+    # 4. Test Copilot query
+    copilot_res = auth_client.post(
+        "/api/ai/copilot",
+        json={"query": "How is the system health?"},
+    )
+    assert copilot_res.status_code == 200
+    assert copilot_res.json()["success"] is True
+
+    # 5. Test Dynamic AI Settings Save
+    save_res = auth_client.post(
+        "/api/settings/ai",
+        json={
+            "provider": "gemini",
+            "model": "gemini-1.5-pro",
+            "api_key": "AIzaSyDynamicTestKey123456",
+            "base_url": "",
+            "enabled": True,
+        },
+    )
+    assert save_res.status_code == 200
+    assert save_res.json()["success"] is True
+    assert save_res.json()["model"] == "gemini-1.5-pro"
+
+    # 6. Verify GET /api/settings returns masked key
+    get_res = auth_client.get("/api/settings")
+    assert get_res.status_code == 200
+    ai_info = get_res.json()["ai"]
+    assert ai_info["provider"] == "gemini"
+    assert ai_info["model"] == "gemini-1.5-pro"
+    assert ai_info["has_key"] is True
+    assert "AIza" in ai_info["masked_key"]
+    assert "••••" in ai_info["masked_key"]
+
+    # 7. Test AI Connection Endpoint
+    test_res = auth_client.post(
+        "/api/ai/test",
+        json={
+            "provider": "gemini",
+            "model": "gemini-1.5-pro",
+            "api_key": "",
+            "base_url": "",
+        },
+    )
+    assert test_res.status_code == 200
+    assert test_res.json()["success"] is True
+    assert "latency_ms" in test_res.json()
+
+    # 8. Test AI Model Discovery Endpoint
+    async def mock_list_models(provider: str, api_key: str = "", base_url: str = ""):
+        return [
+            {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "recommended": True},
+            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "recommended": False},
+        ]
+
+    monkeypatch.setattr("opspilot.web.api.AIProvider.list_available_models", mock_list_models)
+
+    models_res = auth_client.post(
+        "/api/ai/models",
+        json={
+            "provider": "gemini",
+            "api_key": "",
+            "base_url": "",
+        },
+    )
+    assert models_res.status_code == 200
+    assert models_res.json()["success"] is True
+    assert "models" in models_res.json()
+    assert len(models_res.json()["models"]) == 2
+    assert models_res.json()["default_model"] == "gemini-1.5-flash"

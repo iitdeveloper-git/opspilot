@@ -101,6 +101,31 @@ class Settings(BaseSettings):
     automation: AutomationConfig = Field(default_factory=AutomationConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
 
+    # Flat AI settings for direct .env / environment binding
+    ai_enabled: bool = Field(default=False, validation_alias=AliasChoices("ai_enabled", "opspilot_ai_enabled"))
+    ai_provider: str = Field(default="", validation_alias=AliasChoices("ai_provider", "opspilot_ai_provider"))
+    ai_model: str = Field(default="", validation_alias=AliasChoices("ai_model", "opspilot_ai_model"))
+    ai_api_key: str = Field(
+        default="", validation_alias=AliasChoices("ai_api_key", "gemini_api_key", "opspilot_ai_api_key")
+    )
+    ai_base_url: str = Field(default="", validation_alias=AliasChoices("ai_base_url", "opspilot_ai_base_url"))
+
+    @model_validator(mode="after")
+    def sync_ai_settings(self) -> Self:
+        if self.ai_api_key and not self.ai.api_key:
+            self.ai.api_key = self.ai_api_key
+        if self.ai_provider:
+            self.ai.provider = self.ai_provider
+        if self.ai_model:
+            self.ai.model = self.ai_model
+        if self.ai_base_url:
+            self.ai.base_url = self.ai_base_url
+        if self.ai_enabled:
+            self.ai.enabled = self.ai_enabled
+        elif self.ai.api_key and self.ai.api_key != "sk-...":
+            self.ai.enabled = True
+        return self
+
     @property
     def allowed_users(self) -> set[int]:
         if not self.telegram_allowed_user_ids:

@@ -25,8 +25,9 @@ def collect_system_metrics() -> SystemMetrics:
 
     vm = psutil.virtual_memory()
     ram_total = round(vm.total / (1024**3), 2)
-    ram_used = round(vm.used / (1024**3), 2)
-    ram_pct = vm.percent
+    ram_used_bytes = max(0, vm.total - vm.available)
+    ram_used = round(ram_used_bytes / (1024**3), 2)
+    ram_pct = round((ram_used_bytes / vm.total) * 100, 1) if vm.total > 0 else 0.0
 
     disk = psutil.disk_usage("/")
     disk_total = round(disk.total / (1024**3), 2)

@@ -147,13 +147,12 @@ async def test_alert_routes_matching_logic():
 @pytest.mark.asyncio
 async def test_alert_routes_api_endpoints():
     from opspilot.config import Settings
+
     settings = Settings(web_enabled=True, admin_password="test-password")
     mock_channel = MockTelegramChannel()
     app = create_web_app(settings, channel=mock_channel)
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Login to get session
         login_resp = await client.post(
             "/api/auth/login",

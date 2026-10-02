@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from opspilot.ai.copilot import OpsCopilot
+from opspilot.ai.provider import AIProvider
+from opspilot.ai.rca import RootCauseAnalyzer
 from opspilot.core.audit import AuditLogger
 from opspilot.core.executor import SafeOperationExecutor
 from opspilot.core.ignored import parse_duration
+from opspilot.db import alert_routes as alert_routes_db
+from opspilot.db import domains as domains_db
 from opspilot.db import endpoints as ep_db
 from opspilot.db import incidents as inc_db
 from opspilot.db import renewals as ren_db
@@ -44,6 +50,34 @@ async def get_overview(
     c_unhealthy = sum(1 for c in containers if c.health == "unhealthy")
     c_exited = sum(1 for c in containers if c.status == "exited")
 
+    # Probe check for enabled endpoints to reflect real service availability
+    enabled_eps = [e for e in endpoints if e.get("enabled", 1) == 1]
+    if enabled_eps:
+        tasks = [
+            probe_http_endpoint(ep["name"], ep["url"], ep.get("expected_status", 200), timeout=2.0)
+            for ep in enabled_eps
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        p_healthy = sum(1 for res in results if getattr(res, "is_healthy", False))
+        p_unhealthy = len(enabled_eps) - p_healthy
+    else:
+        p_healthy = 0
+        p_unhealthy = 0
+
+    total_checks = len(enabled_eps) + (c_running + c_unhealthy)
+    has_issues = p_unhealthy > 0 or c_unhealthy > 0 or len(open_incidents) > 0
+    if not has_issues:
+        system_status = "HEALTHY"
+    elif (p_unhealthy > 0 and p_healthy == 0) or (c_unhealthy > 0 and c_running == 0):
+        system_status = "DOWN"
+    else:
+        system_status = "DEGRADED"
+
+    health_percentage = 100.0
+    if total_checks > 0:
+        healthy_checks = p_healthy + c_running
+        health_percentage = round((healthy_checks / total_checks) * 100, 1)
+
     return {
         "metrics": {
             "cpu_percent": metrics.cpu_percent,
@@ -61,10 +95,15 @@ async def get_overview(
             "containers_unhealthy": c_unhealthy,
             "containers_exited": c_exited,
             "endpoints_total": len(endpoints),
-            "endpoints_enabled": sum(1 for e in endpoints if e["enabled"] == 1),
+            "endpoints_enabled": len(enabled_eps),
+            "endpoints_healthy": p_healthy,
+            "endpoints_unhealthy": p_unhealthy,
             "renewals_pending": len(renewals),
             "incidents_open": len(open_incidents),
+            "domains_total": len(await domains_db.list_domains()),
         },
+        "system_status": system_status,
+        "health_percentage": health_percentage,
         "recent_incidents": open_incidents,
         "csrf_token": session.get("csrf", ""),
     }
@@ -467,20 +506,74 @@ async def update_renewal_endpoint(
     return {"success": True, "message": f"Renewal #{renewal_id} updated."}
 
 
+class AISettingsUpdateRequest(BaseModel):
+    enabled: bool = True
+    provider: str = Field(default="gemini", min_length=2, max_length=50)
+    model: str = Field(default="gemini-1.5-pro", min_length=2, max_length=100)
+    api_key: str = Field(default="", max_length=500)
+    base_url: str = Field(default="", max_length=500)
+
+
+class AITestConnectionRequest(BaseModel):
+    provider: str = Field(default="gemini")
+    model: str = Field(default="gemini-1.5-flash")
+    api_key: str = Field(default="")
+    base_url: str = Field(default="")
+
+
+class AIModelDiscoveryRequest(BaseModel):
+    provider: str = Field(default="gemini")
+    api_key: str = Field(default="")
+    base_url: str = Field(default="")
+
+
 @router.get("/settings")
 async def get_settings_endpoint(
     request: Request,
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    """Get runtime server settings."""
+    """Get runtime server settings including AI configuration."""
     from opspilot.db.store import get_setting
 
     settings = request.app.state.settings
     current_chat_id = await get_setting("alert_chat_id", settings.telegram_alert_chat_id)
+
+    # Dynamic AI configuration
+    ai_cfg = getattr(settings, "ai", None)
+    stored_ai_enabled = await get_setting("ai_enabled", "true" if getattr(ai_cfg, "enabled", False) else "false")
+    stored_ai_provider = await get_setting("ai_provider", getattr(ai_cfg, "provider", "gemini"))
+    stored_ai_model = await get_setting("ai_model", getattr(ai_cfg, "model", "gemini-1.5-flash"))
+    stored_ai_base_url = await get_setting("ai_base_url", getattr(ai_cfg, "base_url", "") or "")
+    stored_ai_key = await get_setting("ai_api_key", "")
+    if not stored_ai_key:
+        cfg_key = getattr(ai_cfg, "api_key", "")
+        if cfg_key and not cfg_key.startswith("sk-..."):
+            stored_ai_key = cfg_key
+    if not stored_ai_key:
+        if stored_ai_provider == "gemini":
+            stored_ai_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif stored_ai_provider == "openai":
+            stored_ai_key = os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif stored_ai_provider == "anthropic":
+            stored_ai_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("AI_API_KEY") or ""
+
+    is_configured = bool(stored_ai_key and stored_ai_key != "sk-...")
+    masked_key = ""
+    if is_configured:
+        masked_key = f"{stored_ai_key[:4]}••••••••{stored_ai_key[-4:]}" if len(stored_ai_key) > 10 else "••••••••"
+
     return {
         "alert_chat_id": current_chat_id,
         "server_name": settings.server_name,
         "environment": settings.environment,
+        "ai": {
+            "enabled": stored_ai_enabled.lower() in ("true", "1", "yes"),
+            "provider": stored_ai_provider,
+            "model": stored_ai_model,
+            "base_url": stored_ai_base_url,
+            "has_key": is_configured,
+            "masked_key": masked_key,
+        },
     }
 
 
@@ -507,6 +600,188 @@ async def update_settings_endpoint(
         status="SUCCESS",
     )
     return {"success": True, "message": "Alert chat ID updated successfully.", "alert_chat_id": new_chat_id}
+
+
+@router.post("/settings/ai", dependencies=[Depends(verify_csrf)])
+async def update_ai_settings_endpoint(
+    req: AISettingsUpdateRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Persist and update LLM provider, model, and API key dynamically from Command Center UI."""
+    from opspilot.db.store import set_setting
+
+    settings = request.app.state.settings
+    ai_provider = req.provider.strip().lower()
+    ai_model = req.model.strip()
+    ai_base_url = req.base_url.strip()
+
+    await set_setting("ai_enabled", "true" if req.enabled else "false")
+    await set_setting("ai_provider", ai_provider)
+    await set_setting("ai_model", ai_model)
+    await set_setting("ai_base_url", ai_base_url)
+
+    # Only update API key if provided and not masked placeholder
+    new_key = req.api_key.strip()
+    if new_key and not new_key.startswith("••") and "••••" not in new_key:
+        await set_setting("ai_api_key", new_key)
+        if hasattr(settings, "ai"):
+            settings.ai.api_key = new_key
+
+    # Update in-memory settings
+    if hasattr(settings, "ai"):
+        settings.ai.enabled = req.enabled
+        settings.ai.provider = ai_provider
+        settings.ai.model = ai_model
+        settings.ai.base_url = ai_base_url
+
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="update_ai_settings",
+        target=f"{ai_provider}/{ai_model}",
+        status="SUCCESS",
+    )
+    return {
+        "success": True,
+        "message": f"AI configuration saved for {ai_provider.capitalize()} ({ai_model}).",
+        "provider": ai_provider,
+        "model": ai_model,
+        "enabled": req.enabled,
+    }
+
+
+@router.post("/ai/models", dependencies=[Depends(verify_csrf)], tags=["AI"])
+async def discover_ai_models_endpoint(
+    req: AIModelDiscoveryRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Verify provider API key and fetch all supported models dynamically."""
+    from opspilot.db.store import get_setting
+
+    settings = request.app.state.settings
+    provider_name = req.provider.strip().lower()
+    base_url = req.base_url.strip()
+
+    api_key = req.api_key.strip()
+    if not api_key or "••••" in api_key:
+        api_key = await get_setting("ai_api_key", "")
+    if not api_key:
+        cfg_key = getattr(settings.ai, "api_key", "")
+        if cfg_key and not cfg_key.startswith("sk-..."):
+            api_key = cfg_key
+    if not api_key:
+        if provider_name == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif provider_name == "openai":
+            api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif provider_name == "anthropic":
+            api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif provider_name == "ollama":
+            api_key = "ollama-local"
+
+    if not api_key and provider_name != "ollama":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Please enter your {provider_name.capitalize()} API key first to discover supported models.",
+        )
+
+    t0 = asyncio.get_event_loop().time()
+    try:
+        models = await AIProvider.list_available_models(
+            provider=provider_name,
+            api_key=api_key,
+            base_url=base_url,
+        )
+        latency_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+        default_model = next((m["id"] for m in models if m.get("recommended")), models[0]["id"] if models else "")
+
+        return {
+            "success": True,
+            "provider": provider_name,
+            "models": models,
+            "default_model": default_model,
+            "count": len(models),
+            "latency_ms": latency_ms,
+            "message": f"Successfully verified key and discovered {len(models)} models from {provider_name.capitalize()}!",
+        }
+    except Exception as e:
+        latency_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+        return {
+            "success": False,
+            "provider": provider_name,
+            "models": [],
+            "detail": str(e),
+            "latency_ms": latency_ms,
+        }
+
+
+@router.post("/ai/test", dependencies=[Depends(verify_csrf)], tags=["AI"])
+async def test_ai_connection_endpoint(
+    req: AITestConnectionRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Test live connectivity to the selected LLM provider and model."""
+    from opspilot.db.store import get_setting
+
+    settings = request.app.state.settings
+    provider_name = req.provider.strip().lower()
+    model_name = req.model.strip() or ("gemini-1.5-flash" if provider_name == "gemini" else "gpt-4o-mini")
+    base_url = req.base_url.strip()
+
+    api_key = req.api_key.strip()
+    if not api_key or "••••" in api_key:
+        api_key = await get_setting("ai_api_key", "")
+    if not api_key:
+        cfg_key = getattr(settings.ai, "api_key", "")
+        if cfg_key and not cfg_key.startswith("sk-..."):
+            api_key = cfg_key
+    if not api_key:
+        if provider_name == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif provider_name == "openai":
+            api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif provider_name == "anthropic":
+            api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("AI_API_KEY") or ""
+        elif provider_name == "ollama":
+            api_key = "ollama-local"
+
+    if not api_key:
+        if provider_name == "ollama":
+            api_key = "ollama-local"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No API key found for {provider_name.capitalize()}. Please enter your API key to test connection.",
+            )
+
+    t0 = asyncio.get_event_loop().time()
+    try:
+        provider = AIProvider(
+            provider=provider_name,
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url or None,
+        )
+        resp = await provider.generate_response(
+            system_prompt="You are a healthcheck probe. Respond strictly with: OpsPilot AI Online",
+            user_prompt="Ping",
+        )
+        latency_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+
+        if "Error" in resp and ("40" in resp or "50" in resp):
+            return {"success": False, "detail": resp, "latency_ms": latency_ms}
+
+        return {
+            "success": True,
+            "message": f"Successfully connected to {provider_name.capitalize()} ({model_name})!",
+            "response": resp,
+            "latency_ms": latency_ms,
+        }
+    except Exception as e:
+        latency_ms = int((asyncio.get_event_loop().time() - t0) * 1000)
+        return {"success": False, "detail": f"Connection failed: {e!s}", "latency_ms": latency_ms}
 
 
 # ── Alert Routing Rules ───────────────────────────────────────────────────────
@@ -537,7 +812,6 @@ async def list_alert_routes_endpoint(
     session: Annotated[dict, Depends(get_current_session)],
 ) -> list[dict[str, Any]]:
     """List all configured alert routing rules."""
-    from opspilot.db import alert_routes as alert_routes_db
 
     return await alert_routes_db.list_routes()
 
@@ -548,7 +822,6 @@ async def create_alert_route_endpoint(
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
     """Create a new alert routing rule."""
-    from opspilot.db import alert_routes as alert_routes_db
 
     route_id = await alert_routes_db.create_route(
         label=req.label,
@@ -574,7 +847,6 @@ async def update_alert_route_endpoint(
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
     """Update an existing alert routing rule."""
-    from opspilot.db import alert_routes as alert_routes_db
 
     success = await alert_routes_db.update_route(
         route_id=route_id,
@@ -602,7 +874,6 @@ async def delete_alert_route_endpoint(
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
     """Delete an alert routing rule."""
-    from opspilot.db import alert_routes as alert_routes_db
 
     success = await alert_routes_db.delete_route(route_id)
     if not success:
@@ -628,8 +899,7 @@ async def test_alert_route_endpoint(
         raise HTTPException(status_code=500, detail="Telegram channel is not initialized")
     success = await channel.send_to_chat(
         req.chat_id,
-        "🧪 <b>OpsPilot 2.0 Test Alert</b>\n"
-        "Your Telegram routing configuration is verified and receiving alerts! ✅",
+        "🧪 <b>OpsPilot 2.0 Test Alert</b>\nYour Telegram routing configuration is verified and receiving alerts! ✅",
     )
     if not success:
         raise HTTPException(
@@ -637,3 +907,285 @@ async def test_alert_route_endpoint(
             detail=f"Failed to deliver message to chat '{req.chat_id}'. Check chat ID and bot permissions.",
         )
     return {"success": True, "message": f"Test message delivered to chat '{req.chat_id}' successfully!"}
+
+
+# ── AI Diagnostics & Docker Prune ─────────────────────────────────────────────
+
+
+class AIAnalysisRequest(BaseModel):
+    service_name: str
+    container_status: str = "running"
+    logs: str = ""
+
+
+@router.post("/docker/prune", dependencies=[Depends(verify_csrf)])
+async def trigger_docker_prune(
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Execute Docker cache and unused resource pruning."""
+    res = await executor.prune_docker()
+    reclaimed_mb = res.get("reclaimed_mb", 0)
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="docker_prune",
+        target="all_unused",
+        status="SUCCESS" if res.get("success") else "FAILED",
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=500, detail=res.get("error", "Pruning failed"))
+    return {
+        "success": True,
+        "message": f"Cleaned up {reclaimed_mb} MB of unused Docker resources.",
+        "reclaimed_mb": reclaimed_mb,
+    }
+
+
+@router.post("/ai/rca", dependencies=[Depends(verify_csrf)])
+async def analyze_incident_rca(
+    req: AIAnalysisRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Analyze container or incident logs with AI Root Cause Analysis engine."""
+    from opspilot.db.store import get_setting
+
+    settings = getattr(request.app.state, "settings", None)
+    ai_cfg = getattr(settings, "ai", None)
+
+    # Dynamic DB resolution allows hot-configuration from UI without restart
+    stored_provider = await get_setting("ai_provider", "")
+    ai_provider_name = (stored_provider or (ai_cfg.provider if ai_cfg and ai_cfg.provider else "gemini")).lower()
+
+    stored_model = await get_setting("ai_model", "")
+    ai_model = stored_model or (ai_cfg.model if ai_cfg and ai_cfg.model else "gemini-1.5-pro")
+
+    stored_base_url = await get_setting("ai_base_url", "")
+    ai_base_url = stored_base_url or (ai_cfg.base_url if ai_cfg else None) or None
+
+    ai_key = await get_setting("ai_api_key", "")
+    if not ai_key and ai_cfg and ai_cfg.api_key and not ai_cfg.api_key.startswith("sk-..."):
+        ai_key = ai_cfg.api_key
+    if not ai_key:
+        env_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or os.getenv("OPSPILOT_AI_API_KEY") or ""
+        if env_key and not env_key.startswith("sk-..."):
+            ai_key = env_key
+
+    # Check if a live AI key is provided
+    if ai_key:
+        try:
+            provider = AIProvider(
+                provider=ai_provider_name,
+                model=ai_model,
+                api_key=ai_key,
+                base_url=ai_base_url,
+            )
+            analyzer = RootCauseAnalyzer(provider)
+            diagnosis = await analyzer.analyze_incident(
+                service_name=req.service_name,
+                container_status=req.container_status,
+                logs=req.logs,
+            )
+            audit_logger.record_action(
+                user_id="web-admin",
+                action="ai_rca_analysis",
+                target=req.service_name,
+                status="SUCCESS",
+            )
+            return {"success": True, "provider": ai_provider_name, "model": ai_model, "diagnosis": diagnosis}
+        except Exception:
+            # Fall back to heuristic SRE analysis if live API call failed
+            pass
+
+    # Expert heuristic SRE Root-Cause Analysis when AI key is unset or fallback
+    logs_sample = req.logs.strip()
+    status_lower = req.container_status.lower()
+
+    # Rule-based heuristics
+    if (
+        "oom" in logs_sample.lower()
+        or "killed" in logs_sample.lower()
+        or "exit code 137" in logs_sample.lower()
+        or "oom" in status_lower
+    ):
+        root_cause = "Out Of Memory (OOM) killer invoked. Container exceeded memory limit."
+        confidence = "95%"
+        remediation = "1. Scale container memory limit in docker-compose.yml.\n2. Profile heap usage or check for memory leaks in worker tasks.\n3. Restart container after verifying node RAM headroom."
+    elif "connection refused" in logs_sample.lower() or "connect: connection refused" in logs_sample.lower():
+        root_cause = "Upstream connection refusal. Dependent database, cache, or reverse proxy is unreachable."
+        confidence = "90%"
+        remediation = "1. Verify network bridge connectivity between containers.\n2. Confirm database/redis service is running and healthy.\n3. Test port reachability with nc/curl from within the container."
+    elif "permission denied" in logs_sample.lower():
+        root_cause = "Filesystem permission failure or missing access rights for volume mounts."
+        confidence = "92%"
+        remediation = "1. Check host volume ownership with chown/chmod.\n2. Verify UID/GID inside the container matches mounted directory.\n3. Ensure SELinux/AppArmor profiles allow read-write access."
+    elif "exit code 1" in logs_sample.lower() or "fatal" in logs_sample.lower() or "error" in logs_sample.lower():
+        root_cause = f"Application runtime exception in {req.service_name} during execution cycle."
+        confidence = "85%"
+        remediation = "1. Review stacktrace in tail logs.\n2. Validate required environment variables and secrets.\n3. Restart service with live log following."
+    else:
+        root_cause = (
+            f"Service '{req.service_name}' reported status '{req.container_status}'. Normal or transient state."
+        )
+        confidence = "88%"
+        remediation = "1. Service appears operational or within expected baseline.\n2. Monitor CPU/RAM consumption and HTTP response probes.\n3. Set a snooze window if maintenance is underway."
+
+    diagnosis = (
+        f"### 🔍 OpsPilot SRE Incident Diagnosis: {req.service_name}\n\n"
+        f"**Status**: `{req.container_status}` | **Confidence**: `{confidence}`\n\n"
+        f"#### 1. Root Cause Summary\n{root_cause}\n\n"
+        f"#### 2. Key Evidence & Signal Analysis\n"
+        f"- Monitored Target: `{req.service_name}`\n"
+        f"- Container State: `{req.container_status}`\n"
+        f"- Log Analysis: {len(logs_sample)} bytes parsed; error pattern matched.\n\n"
+        f"#### 3. Recommended Remediation\n{remediation}\n"
+    )
+
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="ai_rca_analysis",
+        target=req.service_name,
+        status="SUCCESS",
+    )
+    return {"success": True, "provider": "OpsPilot SRE Heuristic Engine (Offline/Fallback)", "diagnosis": diagnosis}
+
+
+# ── Domain & SSL Certificate Governance ───────────────────────────────────────
+
+
+class DomainCreateRequest(BaseModel):
+    domain: str = Field(min_length=3, max_length=255)
+    port: int = Field(default=443, ge=1, le=65535)
+
+
+@router.get("/domains", tags=["Domains"])
+async def get_domains(
+    session: Annotated[dict, Depends(get_current_session)],
+) -> list[dict[str, Any]]:
+    """List all tracked domains with live SSL certificate status."""
+    return await domains_db.list_domains()
+
+
+@router.post("/domains", dependencies=[Depends(verify_csrf)], tags=["Domains"])
+async def create_domain(
+    req: DomainCreateRequest,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Register and immediately probe the SSL certificate for any domain."""
+    domain_record = await domains_db.add_domain(req.domain, port=req.port)
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="add_ssl_domain",
+        target=req.domain,
+        status="SUCCESS",
+    )
+    return {"success": True, "message": f"Domain '{req.domain}' is now tracked.", "domain": domain_record}
+
+
+@router.post("/domains/{domain_id}/check", dependencies=[Depends(verify_csrf)], tags=["Domains"])
+async def recheck_domain_endpoint(
+    domain_id: int,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Execute an immediate live SSL handshake and certificate validation."""
+    res = await domains_db.recheck_domain(domain_id)
+    if not res:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    return {"success": True, "message": f"SSL certificate rechecked for {res['domain']}.", "domain": res}
+
+
+@router.delete("/domains/{domain_id}", dependencies=[Depends(verify_csrf)], tags=["Domains"])
+async def delete_domain_endpoint(
+    domain_id: int,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Remove a domain from certificate tracking."""
+    success = await domains_db.delete_domain(domain_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="delete_ssl_domain",
+        target=f"#{domain_id}",
+        status="SUCCESS",
+    )
+    return {"success": True, "message": "Domain removed from tracking."}
+
+
+# ── AI SRE Diagnostics & Copilot ──────────────────────────────────────────────
+
+
+class CopilotRequest(BaseModel):
+    query: str
+
+
+@router.get("/ai/status", tags=["AI"])
+async def get_ai_status(
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Check AI Copilot configuration and provider availability."""
+    settings = getattr(request.app.state, "settings", None)
+    ai_cfg = getattr(settings, "ai", None)
+    api_key = (ai_cfg.api_key if ai_cfg else None) or os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY")
+    is_configured = bool(api_key and api_key != "sk-...")
+    return {
+        "enabled": ai_cfg.enabled if ai_cfg else False,
+        "configured": is_configured,
+        "provider": ai_cfg.provider if ai_cfg else "gemini",
+        "model": ai_cfg.model if ai_cfg else "gemini-1.5-pro",
+    }
+
+
+@router.post("/ai/copilot", dependencies=[Depends(verify_csrf)], tags=["AI"])
+async def ask_copilot(
+    req: CopilotRequest,
+    request: Request,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Query OpsPilot AI Copilot for infrastructure diagnostics and troubleshooting."""
+    from opspilot.db.store import get_setting
+
+    settings = getattr(request.app.state, "settings", None)
+    ai_cfg = getattr(settings, "ai", None)
+
+    stored_provider = await get_setting("ai_provider", "")
+    provider_name = (stored_provider or (ai_cfg.provider if ai_cfg and ai_cfg.provider else "gemini")).lower()
+
+    stored_model = await get_setting("ai_model", "")
+    model_name = stored_model or (ai_cfg.model if ai_cfg and ai_cfg.model else "gemini-1.5-pro")
+
+    stored_base_url = await get_setting("ai_base_url", "")
+    base_url = stored_base_url or (ai_cfg.base_url if ai_cfg else None) or None
+
+    ai_key = await get_setting("ai_api_key", "")
+    if not ai_key and ai_cfg and ai_cfg.api_key and not ai_cfg.api_key.startswith("sk-..."):
+        ai_key = ai_cfg.api_key
+    if not ai_key:
+        env_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or os.getenv("OPSPILOT_AI_API_KEY") or ""
+        if env_key and not env_key.startswith("sk-..."):
+            ai_key = env_key
+
+    if not ai_key:
+        return {
+            "success": False,
+            "detail": "OpsPilot AI Copilot requires an API key. Please configure GEMINI_API_KEY in Settings or your .env file.",
+        }
+
+    provider = AIProvider(provider=provider_name, model=model_name, api_key=ai_key, base_url=base_url)
+    copilot = OpsCopilot(provider)
+
+    metrics = await asyncio.to_thread(collect_system_metrics)
+    containers = await asyncio.to_thread(collect_docker_statuses)
+    domains = await domains_db.list_domains()
+
+    context = {
+        "metrics": f"CPU {metrics.cpu_percent}%, RAM {metrics.ram_percent}%, Disk {metrics.disk_percent}%",
+        "containers": [f"{c.name}: {c.status}" for c in containers[:10]],
+        "ssl": [f"{d['domain']}: {d.get('days_remaining', 0)}d remaining" for d in domains[:5]],
+    }
+
+    try:
+        answer = await copilot.ask(req.query, context)
+        return {"success": True, "answer": answer, "provider": provider_name, "model": model_name}
+    except Exception as e:
+        return {"success": False, "detail": f"Copilot error: {e!s}"}

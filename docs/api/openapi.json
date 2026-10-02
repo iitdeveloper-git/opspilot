@@ -1,0 +1,1661 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpsPilot 2.0 Command Center",
+    "description": "Autonomous Infrastructure & Billing Command Center",
+    "version": "0.4.0"
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Login Api Auth Login Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Logout Api Auth Logout Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Get Me",
+        "operationId": "get_me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Me Api Auth Me Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/overview": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Get Overview",
+        "description": "Retrieve system resource gauges and high-level fleet status.",
+        "operationId": "get_overview_api_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Overview Api Overview Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/containers": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "List Containers",
+        "description": "List all Docker containers with statuses and snooze metadata.",
+        "operationId": "list_containers_api_containers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response List Containers Api Containers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/containers/{name}/restart": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Restart Container",
+        "description": "Safely restart a Docker container via SafeOperationExecutor.",
+        "operationId": "restart_container_api_containers__name__restart_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Restart Container Api Containers  Name  Restart Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/containers/{name}/logs": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Get Container Logs",
+        "description": "Retrieve tail logs for a Docker container safely via SafeOperationExecutor.",
+        "operationId": "get_container_logs_api_containers__name__logs_get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 10,
+              "default": 50,
+              "title": "Tail"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Container Logs Api Containers  Name  Logs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/containers/{name}/snooze": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Snooze Container Endpoint",
+        "description": "Snooze alerts for a container for the given duration.",
+        "operationId": "snooze_container_endpoint_api_containers__name__snooze_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerSnoozeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Snooze Container Endpoint Api Containers  Name  Snooze Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/containers/{name}/unsnooze": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Unsnooze Container Endpoint",
+        "description": "Clear snooze for a container.",
+        "operationId": "unsnooze_container_endpoint_api_containers__name__unsnooze_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Unsnooze Container Endpoint Api Containers  Name  Unsnooze Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/probes": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "List Probes",
+        "description": "List all registered HTTP probes and perform quick health checks.",
+        "operationId": "list_probes_api_probes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response List Probes Api Probes Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Create Probe",
+        "description": "Add a new HTTP probe to the database.",
+        "operationId": "create_probe_api_probes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Create Probe Api Probes Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/probes/{probe_id}/toggle": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Toggle Probe",
+        "description": "Enable or disable an HTTP probe.",
+        "operationId": "toggle_probe_api_probes__probe_id__toggle_post",
+        "parameters": [
+          {
+            "name": "probe_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Probe Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeToggleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Toggle Probe Api Probes  Probe Id  Toggle Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/probes/{probe_id}": {
+      "delete": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Delete Probe",
+        "description": "Soft-delete an HTTP probe (sets enabled=0).",
+        "operationId": "delete_probe_api_probes__probe_id__delete",
+        "parameters": [
+          {
+            "name": "probe_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Probe Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Probe Api Probes  Probe Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/renewals": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "List Renewals Endpoint",
+        "description": "List registered renewals and client billing reminders.",
+        "operationId": "list_renewals_endpoint_api_renewals_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Renewals Endpoint Api Renewals Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Create Renewal",
+        "description": "Create a new renewal or client payment reminder.",
+        "operationId": "create_renewal_api_renewals_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewalCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Renewal Api Renewals Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/renewals/{renewal_id}/pay": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Pay Renewal",
+        "description": "Mark renewal as paid and advance recurring due date if applicable.",
+        "operationId": "pay_renewal_api_renewals__renewal_id__pay_post",
+        "parameters": [
+          {
+            "name": "renewal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Renewal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Pay Renewal Api Renewals  Renewal Id  Pay Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/renewals/{renewal_id}/snooze": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Snooze Renewal Endpoint",
+        "description": "Snooze renewal reminders for N days.",
+        "operationId": "snooze_renewal_endpoint_api_renewals__renewal_id__snooze_post",
+        "parameters": [
+          {
+            "name": "renewal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Renewal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewalSnoozeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Snooze Renewal Endpoint Api Renewals  Renewal Id  Snooze Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/renewals/{renewal_id}": {
+      "delete": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Delete Renewal Endpoint",
+        "description": "Cancel / soft-delete a renewal.",
+        "operationId": "delete_renewal_endpoint_api_renewals__renewal_id__delete",
+        "parameters": [
+          {
+            "name": "renewal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Renewal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Renewal Endpoint Api Renewals  Renewal Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Update Renewal Endpoint",
+        "description": "Update an existing client billing or renewal reminder.",
+        "operationId": "update_renewal_endpoint_api_renewals__renewal_id__put",
+        "parameters": [
+          {
+            "name": "renewal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Renewal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewalUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Renewal Endpoint Api Renewals  Renewal Id  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/incidents": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "List Incidents Endpoint",
+        "description": "List recent system incidents.",
+        "operationId": "list_incidents_endpoint_api_incidents_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 5,
+              "default": 30,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Incidents Endpoint Api Incidents Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/incidents/{incident_id}/resolve": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Resolve Incident Endpoint",
+        "description": "Manually resolve an incident.",
+        "operationId": "resolve_incident_endpoint_api_incidents__incident_id__resolve_post",
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Incident Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Resolve Incident Endpoint Api Incidents  Incident Id  Resolve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Get Settings Endpoint",
+        "description": "Get runtime server settings.",
+        "operationId": "get_settings_endpoint_api_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Settings Endpoint Api Settings Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Update Settings Endpoint",
+        "description": "Update runtime settings (e.g. alert chat ID) immediately without restart.",
+        "operationId": "update_settings_endpoint_api_settings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Update Settings Endpoint Api Settings Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alert-routes": {
+      "get": {
+        "tags": [
+          "API"
+        ],
+        "summary": "List Alert Routes Endpoint",
+        "description": "List all configured alert routing rules.",
+        "operationId": "list_alert_routes_endpoint_api_alert_routes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response List Alert Routes Endpoint Api Alert Routes Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Create Alert Route Endpoint",
+        "description": "Create a new alert routing rule.",
+        "operationId": "create_alert_route_endpoint_api_alert_routes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRouteCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Create Alert Route Endpoint Api Alert Routes Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alert-routes/{route_id}": {
+      "put": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Update Alert Route Endpoint",
+        "description": "Update an existing alert routing rule.",
+        "operationId": "update_alert_route_endpoint_api_alert_routes__route_id__put",
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRouteUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Alert Route Endpoint Api Alert Routes  Route Id  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Delete Alert Route Endpoint",
+        "description": "Delete an alert routing rule.",
+        "operationId": "delete_alert_route_endpoint_api_alert_routes__route_id__delete",
+        "parameters": [
+          {
+            "name": "route_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Route Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Alert Route Endpoint Api Alert Routes  Route Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alert-routes/test": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Test Alert Route Endpoint",
+        "description": "Send an immediate verification test message to the specified Telegram Chat ID.",
+        "operationId": "test_alert_route_endpoint_api_alert_routes_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRouteTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Test Alert Route Endpoint Api Alert Routes Test Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docker/prune": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Trigger Docker Prune",
+        "description": "Execute Docker cache and unused resource pruning.",
+        "operationId": "trigger_docker_prune_api_docker_prune_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Trigger Docker Prune Api Docker Prune Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/rca": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Analyze Incident Rca",
+        "description": "Analyze container or incident logs with AI Root Cause Analysis engine.",
+        "operationId": "analyze_incident_rca_api_ai_rca_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Analyze Incident Rca Api Ai Rca Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AIAnalysisRequest": {
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "title": "Service Name"
+          },
+          "container_status": {
+            "type": "string",
+            "title": "Container Status",
+            "default": "running"
+          },
+          "logs": {
+            "type": "string",
+            "title": "Logs",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_name"
+        ],
+        "title": "AIAnalysisRequest"
+      },
+      "AlertRouteCreateRequest": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "chat_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Chat Id"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "chat_id"
+        ],
+        "title": "AlertRouteCreateRequest"
+      },
+      "AlertRouteTestRequest": {
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Chat Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chat_id"
+        ],
+        "title": "AlertRouteTestRequest"
+      },
+      "AlertRouteUpdateRequest": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "chat_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Chat Id"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "chat_id"
+        ],
+        "title": "AlertRouteUpdateRequest"
+      },
+      "ContainerSnoozeRequest": {
+        "properties": {
+          "duration": {
+            "type": "string",
+            "title": "Duration",
+            "description": "e.g. 1h, 6h, 24h, forever",
+            "default": "1h"
+          }
+        },
+        "type": "object",
+        "title": "ContainerSnoozeRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "ProbeCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Url"
+          },
+          "expected_status": {
+            "type": "integer",
+            "maximum": 599.0,
+            "minimum": 100.0,
+            "title": "Expected Status",
+            "default": 200
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "url"
+        ],
+        "title": "ProbeCreateRequest"
+      },
+      "ProbeToggleRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "ProbeToggleRequest"
+      },
+      "RenewalCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "due_date": {
+            "type": "string",
+            "title": "Due Date",
+            "description": "ISO 8601 YYYY-MM-DD"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "INR"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes",
+            "default": ""
+          },
+          "recurrence": {
+            "type": "string",
+            "title": "Recurrence",
+            "default": "none"
+          },
+          "remind_days_before": {
+            "type": "integer",
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Remind Days Before",
+            "default": 7
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "due_date"
+        ],
+        "title": "RenewalCreateRequest"
+      },
+      "RenewalSnoozeRequest": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Days",
+            "default": 7
+          }
+        },
+        "type": "object",
+        "title": "RenewalSnoozeRequest"
+      },
+      "RenewalUpdateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Category",
+            "default": "other"
+          },
+          "due_date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Due Date"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 10,
+            "title": "Currency",
+            "default": "INR"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Notes",
+            "default": ""
+          },
+          "recurrence": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Recurrence",
+            "default": "none"
+          },
+          "remind_days_before": {
+            "type": "integer",
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Remind Days Before",
+            "default": 7
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "due_date"
+        ],
+        "title": "RenewalUpdateRequest"
+      },
+      "SettingsUpdateRequest": {
+        "properties": {
+          "alert_chat_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Alert Chat Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "alert_chat_id"
+        ],
+        "title": "SettingsUpdateRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -103,6 +103,18 @@ async def init_db() -> None:
                 created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
                 updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS ssl_domains (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain          TEXT    NOT NULL UNIQUE,
+                port            INTEGER NOT NULL DEFAULT 443,
+                issuer          TEXT    NOT NULL DEFAULT '',
+                expires_at      TEXT    NOT NULL DEFAULT '',
+                days_remaining  INTEGER NOT NULL DEFAULT 0,
+                is_valid        INTEGER NOT NULL DEFAULT 1,
+                last_checked_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                error           TEXT    NOT NULL DEFAULT '',
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         # Migration: add snoozed_until to renewals if upgrading from v0.2
         try:

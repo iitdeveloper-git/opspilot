@@ -44,41 +44,47 @@ async def create_route(
 
 async def list_routes() -> list[dict[str, Any]]:
     """List all configured alert routes."""
-    async with db_conn() as db, db.execute(
-        "SELECT id, label, chat_id, categories, events, enabled, created_at, updated_at FROM alert_routes ORDER BY id ASC"
-    ) as cursor:
-            rows = await cursor.fetchall()
-            result = []
-            for r in rows:
-                try:
-                    cats = json.loads(r["categories"])
-                except Exception:
-                    cats = ["all"]
-                try:
-                    evs = json.loads(r["events"])
-                except Exception:
-                    evs = []
-                result.append(
-                    {
-                        "id": r["id"],
-                        "label": r["label"],
-                        "chat_id": r["chat_id"],
-                        "categories": cats,
-                        "events": evs,
-                        "enabled": bool(r["enabled"]),
-                        "created_at": r["created_at"],
-                        "updated_at": r["updated_at"],
-                    }
-                )
-            return result
+    async with (
+        db_conn() as db,
+        db.execute(
+            "SELECT id, label, chat_id, categories, events, enabled, created_at, updated_at FROM alert_routes ORDER BY id ASC"
+        ) as cursor,
+    ):
+        rows = await cursor.fetchall()
+        result = []
+        for r in rows:
+            try:
+                cats = json.loads(r["categories"])
+            except Exception:
+                cats = ["all"]
+            try:
+                evs = json.loads(r["events"])
+            except Exception:
+                evs = []
+            result.append(
+                {
+                    "id": r["id"],
+                    "label": r["label"],
+                    "chat_id": r["chat_id"],
+                    "categories": cats,
+                    "events": evs,
+                    "enabled": bool(r["enabled"]),
+                    "created_at": r["created_at"],
+                    "updated_at": r["updated_at"],
+                }
+            )
+        return result
 
 
 async def get_route(route_id: int) -> dict[str, Any] | None:
     """Get a single route by ID."""
-    async with db_conn() as db, db.execute(
-        "SELECT id, label, chat_id, categories, events, enabled, created_at, updated_at FROM alert_routes WHERE id = ?",
-        (route_id,),
-    ) as cursor:
+    async with (
+        db_conn() as db,
+        db.execute(
+            "SELECT id, label, chat_id, categories, events, enabled, created_at, updated_at FROM alert_routes WHERE id = ?",
+            (route_id,),
+        ) as cursor,
+    ):
         row = await cursor.fetchone()
         if not row:
             return None
