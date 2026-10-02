@@ -701,10 +701,10 @@
               <div class="filter-bar">
                 <input type="text" id="incidentsSearchInput" class="search-input" placeholder="Filter by service, URL, or error...">
                 <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-secondary btn-sm incident-filter-btn active" data-filter="all">All</button>
-                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="active">Active</button>
-                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="resolved">Resolved</button>
-                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="critical">Critical</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn active" data-filter="all" id="filterBtn-all">All</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="active" id="filterBtn-active">Active</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="resolved" id="filterBtn-resolved">Resolved</button>
+                  <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="critical" id="filterBtn-critical">Critical</button>
                 </div>
               </div>
             </div>
@@ -716,7 +716,7 @@
                 <div class="incident-kpi-val" id="activeIncidentsCountVal">
                   <span class="status-dot green"></span> 0 Open
                 </div>
-                <span class="incident-kpi-sub">All monitored endpoints healthy</span>
+                <span class="incident-kpi-sub" id="activeIncidentsSubVal">All monitored endpoints healthy</span>
               </div>
 
               <div class="glass-panel incident-kpi-card">
