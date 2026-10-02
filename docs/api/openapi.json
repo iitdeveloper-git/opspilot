@@ -3,7 +3,7 @@
   "info": {
     "title": "OpsPilot 2.0 Command Center",
     "description": "Autonomous Infrastructure & Billing Command Center",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "paths": {
     "/api/auth/login": {
@@ -478,7 +478,7 @@
           "API"
         ],
         "summary": "Delete Probe",
-        "description": "Soft-delete an HTTP probe (sets enabled=0).",
+        "description": "Permanently delete an HTTP probe.",
         "operationId": "delete_probe_api_probes__probe_id__delete",
         "parameters": [
           {
@@ -908,13 +908,58 @@
         }
       }
     },
+    "/api/incidents/{incident_id}": {
+      "delete": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Delete Incident Endpoint",
+        "description": "Delete an incident from the audit ledger.",
+        "operationId": "delete_incident_endpoint_api_incidents__incident_id__delete",
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Incident Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Incident Endpoint Api Incidents  Incident Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": [
           "API"
         ],
         "summary": "Get Settings Endpoint",
-        "description": "Get runtime server settings.",
+        "description": "Get runtime server settings including AI configuration.",
         "operationId": "get_settings_endpoint_api_settings_get",
         "responses": {
           "200": {
@@ -957,6 +1002,140 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Update Settings Endpoint Api Settings Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/ai": {
+      "post": {
+        "tags": [
+          "API"
+        ],
+        "summary": "Update Ai Settings Endpoint",
+        "description": "Persist and update LLM provider, model, and API key dynamically from Command Center UI.",
+        "operationId": "update_ai_settings_endpoint_api_settings_ai_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AISettingsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Update Ai Settings Endpoint Api Settings Ai Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/models": {
+      "post": {
+        "tags": [
+          "API",
+          "AI"
+        ],
+        "summary": "Discover Ai Models Endpoint",
+        "description": "Verify provider API key and fetch all supported models dynamically.",
+        "operationId": "discover_ai_models_endpoint_api_ai_models_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIModelDiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Discover Ai Models Endpoint Api Ai Models Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/test": {
+      "post": {
+        "tags": [
+          "API",
+          "AI"
+        ],
+        "summary": "Test Ai Connection Endpoint",
+        "description": "Test live connectivity to the selected LLM provider and model.",
+        "operationId": "test_ai_connection_endpoint_api_ai_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AITestConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Test Ai Connection Endpoint Api Ai Test Post"
                 }
               }
             }
@@ -1252,6 +1431,293 @@
           }
         }
       }
+    },
+    "/api/domains": {
+      "get": {
+        "tags": [
+          "API",
+          "Domains"
+        ],
+        "summary": "Get Domains",
+        "description": "List all tracked domains with live SSL certificate and domain registration governance.",
+        "operationId": "get_domains_api_domains_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Get Domains Api Domains Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "API",
+          "Domains"
+        ],
+        "summary": "Create Domain",
+        "description": "Register and immediately probe the SSL certificate and ICANN RDAP for any domain.",
+        "operationId": "create_domain_api_domains_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Create Domain Api Domains Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/domains/{domain_id}": {
+      "put": {
+        "tags": [
+          "API",
+          "Domains"
+        ],
+        "summary": "Update Domain Endpoint",
+        "description": "Update domain governance details (registrar, port, domain renewal date).",
+        "operationId": "update_domain_endpoint_api_domains__domain_id__put",
+        "parameters": [
+          {
+            "name": "domain_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Domain Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Domain Endpoint Api Domains  Domain Id  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "API",
+          "Domains"
+        ],
+        "summary": "Delete Domain Endpoint",
+        "description": "Remove a domain from certificate tracking.",
+        "operationId": "delete_domain_endpoint_api_domains__domain_id__delete",
+        "parameters": [
+          {
+            "name": "domain_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Domain Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Domain Endpoint Api Domains  Domain Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/domains/{domain_id}/check": {
+      "post": {
+        "tags": [
+          "API",
+          "Domains"
+        ],
+        "summary": "Recheck Domain Endpoint",
+        "description": "Execute an immediate live SSL handshake and ICANN RDAP domain registration recheck.",
+        "operationId": "recheck_domain_endpoint_api_domains__domain_id__check_post",
+        "parameters": [
+          {
+            "name": "domain_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Domain Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Recheck Domain Endpoint Api Domains  Domain Id  Check Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/status": {
+      "get": {
+        "tags": [
+          "API",
+          "AI"
+        ],
+        "summary": "Get Ai Status",
+        "description": "Check AI Copilot configuration and provider availability.",
+        "operationId": "get_ai_status_api_ai_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Ai Status Api Ai Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/copilot": {
+      "post": {
+        "tags": [
+          "API",
+          "AI"
+        ],
+        "summary": "Ask Copilot",
+        "description": "Query OpsPilot AI Copilot for infrastructure diagnostics and troubleshooting.",
+        "operationId": "ask_copilot_api_ai_copilot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Ask Copilot Api Ai Copilot Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1278,6 +1744,90 @@
           "service_name"
         ],
         "title": "AIAnalysisRequest"
+      },
+      "AIModelDiscoveryRequest": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "default": "gemini"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "default": ""
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AIModelDiscoveryRequest"
+      },
+      "AISettingsUpdateRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "provider": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Provider",
+            "default": "gemini"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 2,
+            "title": "Model",
+            "default": "gemini-1.5-pro"
+          },
+          "api_key": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Api Key",
+            "default": ""
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Base Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AISettingsUpdateRequest"
+      },
+      "AITestConnectionRequest": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "default": "gemini"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": "gemini-1.5-flash"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "default": ""
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AITestConnectionRequest"
       },
       "AlertRouteCreateRequest": {
         "properties": {
@@ -1387,6 +1937,86 @@
         },
         "type": "object",
         "title": "ContainerSnoozeRequest"
+      },
+      "CopilotRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "CopilotRequest"
+      },
+      "DomainCreateRequest": {
+        "properties": {
+          "domain": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Domain"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 443
+          },
+          "registrar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registrar"
+          },
+          "domain_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "domain"
+        ],
+        "title": "DomainCreateRequest"
+      },
+      "DomainUpdateRequest": {
+        "properties": {
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 443
+          },
+          "registrar": {
+            "type": "string",
+            "title": "Registrar",
+            "default": ""
+          },
+          "domain_expires_at": {
+            "type": "string",
+            "title": "Domain Expires At",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "DomainUpdateRequest"
       },
       "HTTPValidationError": {
         "properties": {

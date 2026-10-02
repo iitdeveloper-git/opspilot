@@ -7,11 +7,51 @@ let currentTab = 'overview';
 let activeLogsContainer = '';
 let activeRestartContainer = '';
 let activeSnoozeContainer = '';
-let autoRefreshPaused = false;
-let refreshCountdown = 5;
+let configuredRefreshInterval = parseInt(localStorage.getItem('opspilot_refresh_interval') || '60', 10);
+let autoRefreshPaused = (configuredRefreshInterval === 0);
+let refreshCountdown = (configuredRefreshInterval > 0 ? configuredRefreshInterval : 60);
 let timerInterval = null;
 let cachedContainers = [];
 let cachedProbes = [];
+
+// ── View Modes & SRE Data Grid Switcher ──────────────────────────────────────
+let viewModes = {
+  fleet: 'rows',
+  probes: 'rows',
+  domains: 'rows',
+  renewals: 'rows',
+  incidents: 'rows',
+};
+try {
+  const saved = localStorage.getItem('opspilot_view_modes');
+  if (saved) Object.assign(viewModes, JSON.parse(saved));
+} catch (e) {}
+
+window.setViewMode = function(tabName, mode) {
+  viewModes[tabName] = mode;
+  try {
+    localStorage.setItem('opspilot_view_modes', JSON.stringify(viewModes));
+  } catch (e) {}
+  updateViewToggleUI(tabName);
+  if (tabName === 'fleet') filterFleetGrid();
+  else if (tabName === 'probes') filterProbesGrid();
+  else if (tabName === 'domains') renderDomainsGrid(cachedDomains);
+  else if (tabName === 'renewals') filterRenewalsGrid();
+  else if (tabName === 'incidents') renderIncidentsFeed();
+};
+
+function updateViewToggleUI(tabName) {
+  const toggle = document.getElementById(`${tabName}ViewToggle`);
+  if (!toggle) return;
+  const current = viewModes[tabName] || 'rows';
+  toggle.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === current);
+  });
+}
+
+function updateAllViewToggles() {
+  ['fleet', 'probes', 'domains', 'renewals', 'incidents'].forEach(updateViewToggleUI);
+}
 
 // ── Authentication & Boot ───────────────────────────────────────────────────
 
@@ -19,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initAuth();
   setupEventListeners();
+  updateAllViewToggles();
 });
 
 async function apiFetch(url, options = {}) {
@@ -44,7 +85,7 @@ async function initAuth() {
       csrfToken = data.csrf_token;
       document.getElementById('serverNameLabel').textContent = data.server_name || 'node-01';
       showAppScreen();
-      startAutoRefresh();
+      setRefreshInterval(configuredRefreshInterval, false);
       refreshAll();
     } else {
       showLoginScreen();
@@ -143,18 +184,57 @@ function setupEventListeners() {
   });
 
   // Auto-Refresh Button (Toggle pause/resume)
-  document.getElementById('refreshTimerBtn').addEventListener('click', () => {
+  document.getElementById('refreshTimerBtn')?.addEventListener('click', () => {
     autoRefreshPaused = !autoRefreshPaused;
     const btn = document.getElementById('refreshTimerBtn');
     if (autoRefreshPaused) {
-      btn.innerHTML = '⏸ Paused';
-      btn.style.borderColor = 'var(--color-warning)';
+      if (btn) {
+        btn.innerHTML = '⏸ Paused';
+        btn.style.borderColor = 'var(--color-warning)';
+      }
+      showToast('Auto-refresh paused. Use ↻ Sync for on-demand updates.', 'info');
     } else {
-      refreshCountdown = 5;
-      btn.innerHTML = '⏱ <span id="refreshTimerCountdown">5s</span>';
-      btn.style.borderColor = 'var(--border-subtle)';
-      refreshAll();
+      if (configuredRefreshInterval === 0) {
+        setRefreshInterval(60);
+      } else {
+        refreshCountdown = configuredRefreshInterval;
+        if (btn) {
+          btn.innerHTML = `⏱ <span id="refreshTimerCountdown">${refreshCountdown}s</span>`;
+          btn.style.borderColor = 'var(--border-subtle)';
+        }
+        startAutoRefresh();
+        showToast(`Auto-refresh resumed (${configuredRefreshInterval}s).`, 'info');
+      }
     }
+  });
+
+  // Top Bar Refresh Interval Selector
+  const topIntervalSelect = document.getElementById('autoRefreshIntervalSelect');
+  if (topIntervalSelect) {
+    topIntervalSelect.value = String(configuredRefreshInterval);
+    topIntervalSelect.addEventListener('change', (e) => {
+      setRefreshInterval(e.target.value);
+    });
+  }
+
+  // Settings Tab Refresh Interval Selector
+  const settingsIntervalSelect = document.getElementById('settingsRefreshIntervalSelect');
+  if (settingsIntervalSelect) {
+    settingsIntervalSelect.value = String(configuredRefreshInterval);
+    settingsIntervalSelect.addEventListener('change', (e) => {
+      setRefreshInterval(e.target.value);
+    });
+  }
+
+  // View Mode Toggles
+  document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      const mode = btn.dataset.view;
+      if (tab && mode) {
+        setViewMode(tab, mode);
+      }
+    });
   });
 
   // Fleet Filter & Search
@@ -177,6 +257,16 @@ function setupEventListeners() {
     });
   });
 
+  // Domain Filter & Search
+  document.getElementById('domainsSearchInput')?.addEventListener('input', () => renderDomainsGrid(cachedDomains));
+  document.querySelectorAll('.domain-filter-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.domain-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderDomainsGrid(cachedDomains);
+    });
+  });
+
   // Renewal Filter & Search
   document.getElementById('renewalsSearchInput')?.addEventListener('input', filterRenewalsGrid);
   document.querySelectorAll('.renewal-filter-btn').forEach(btn => {
@@ -184,6 +274,16 @@ function setupEventListeners() {
       document.querySelectorAll('.renewal-filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       filterRenewalsGrid();
+    });
+  });
+
+  // Alert Routes Filter & Search
+  document.getElementById('alertRoutesSearchInput')?.addEventListener('input', filterAlertRoutes);
+  document.querySelectorAll('.route-filter-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.route-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterAlertRoutes();
     });
   });
 
@@ -1229,19 +1329,66 @@ function switchTab(tabId) {
 
 // ── Polling & Auto-Refresh ──────────────────────────────────────────────────
 
+function setRefreshInterval(seconds, notify = true) {
+  configuredRefreshInterval = parseInt(seconds, 10);
+  localStorage.setItem('opspilot_refresh_interval', configuredRefreshInterval);
+
+  const topSelect = document.getElementById('autoRefreshIntervalSelect');
+  if (topSelect) topSelect.value = String(configuredRefreshInterval);
+  const settingsSelect = document.getElementById('settingsRefreshIntervalSelect');
+  if (settingsSelect) settingsSelect.value = String(configuredRefreshInterval);
+
+  const btn = document.getElementById('refreshTimerBtn');
+  const el = document.getElementById('refreshTimerCountdown');
+
+  if (configuredRefreshInterval === 0) {
+    autoRefreshPaused = true;
+    stopAutoRefresh();
+    if (btn) {
+      btn.innerHTML = '⏸ Paused';
+      btn.style.borderColor = 'var(--color-warning)';
+    }
+    if (el) el.textContent = 'Paused';
+    if (notify) showToast('Auto-refresh disabled. Use "↻ Sync" for manual on-demand updates.', 'info');
+  } else {
+    autoRefreshPaused = false;
+    refreshCountdown = configuredRefreshInterval;
+    if (btn) {
+      btn.innerHTML = `⏱ <span id="refreshTimerCountdown">${refreshCountdown}s</span>`;
+      btn.style.borderColor = 'var(--border-subtle)';
+    }
+    startAutoRefresh();
+    if (notify) showToast(`Auto-refresh cadence set to ${configuredRefreshInterval}s.`, 'success');
+  }
+}
+
 function startAutoRefresh() {
   stopAutoRefresh();
-  refreshCountdown = 5;
-  timerInterval = setInterval(() => {
-    if (autoRefreshPaused) return;
-    refreshCountdown--;
+  if (configuredRefreshInterval === 0 || autoRefreshPaused) {
     const el = document.getElementById('refreshTimerCountdown');
-    if (el) el.textContent = `${refreshCountdown}s`;
-    const el2 = document.getElementById('overviewRefreshTicker');
-    if (el2) el2.textContent = `${refreshCountdown}s`;
+    if (el) el.textContent = 'Paused';
+    return;
+  }
+
+  if (refreshCountdown <= 0 || refreshCountdown > configuredRefreshInterval) {
+    refreshCountdown = configuredRefreshInterval;
+  }
+
+  const el = document.getElementById('refreshTimerCountdown');
+  if (el) el.textContent = `${refreshCountdown}s`;
+  const el2 = document.getElementById('overviewRefreshTicker');
+  if (el2) el2.textContent = `${refreshCountdown}s`;
+
+  timerInterval = setInterval(() => {
+    if (autoRefreshPaused || configuredRefreshInterval === 0) return;
+    refreshCountdown--;
+    const tEl = document.getElementById('refreshTimerCountdown');
+    if (tEl) tEl.textContent = `${refreshCountdown}s`;
+    const tEl2 = document.getElementById('overviewRefreshTicker');
+    if (tEl2) tEl2.textContent = `${refreshCountdown}s`;
 
     if (refreshCountdown <= 0) {
-      refreshCountdown = 5;
+      refreshCountdown = configuredRefreshInterval;
       refreshAll();
     }
   }, 1000);
@@ -1581,60 +1728,179 @@ async function fetchFleet() {
 }
 
 function filterFleetGrid() {
-  const query = (document.getElementById('fleetSearchInput').value || '').toLowerCase();
+  const total = cachedContainers.length;
+  const running = cachedContainers.filter(c => c.status === 'running' && c.health !== 'unhealthy').length;
+  const exited = cachedContainers.filter(c => c.status === 'exited' || c.health === 'unhealthy').length;
+  const snoozed = cachedContainers.filter(c => c.is_snoozed).length;
+
+  const elTotal = document.getElementById('fleetKpiTotal');
+  const elRunning = document.getElementById('fleetKpiRunning');
+  const elExited = document.getElementById('fleetKpiExited');
+  const elSnoozed = document.getElementById('fleetKpiSnoozed');
+  const elBadge = document.getElementById('fleetRunningBadge');
+
+  if (elTotal) elTotal.textContent = total;
+  if (elRunning) elRunning.textContent = running;
+  if (elExited) elExited.textContent = exited;
+  if (elSnoozed) elSnoozed.textContent = snoozed;
+  if (elBadge) elBadge.textContent = `${running} RUNNING`;
+
+  const btnAll = document.getElementById('fleetFilterAll');
+  const btnRun = document.getElementById('fleetFilterRunning');
+  const btnExit = document.getElementById('fleetFilterExited');
+  const btnSnooze = document.getElementById('fleetFilterSnoozed');
+  if (btnAll) btnAll.innerHTML = `All (${total})`;
+  if (btnRun) btnRun.innerHTML = `Running (${running})`;
+  if (btnExit) btnExit.innerHTML = `Exited (${exited})`;
+  if (btnSnooze) btnSnooze.innerHTML = `Snoozed (${snoozed})`;
+
+  const query = (document.getElementById('fleetSearchInput')?.value || '').toLowerCase().trim();
   const filterBtn = document.querySelector('.fleet-filter-btn.active');
   const filter = filterBtn ? filterBtn.dataset.filter : 'all';
 
   const filtered = cachedContainers.filter(c => {
-    const matchesQuery = c.name.toLowerCase().includes(query) || (c.image || '').toLowerCase().includes(query);
+    const matchesQuery = !query || 
+      (c.name || '').toLowerCase().includes(query) || 
+      (c.image || '').toLowerCase().includes(query) ||
+      (c.status || '').toLowerCase().includes(query) ||
+      (c.id || '').toLowerCase().includes(query);
     if (!matchesQuery) return false;
 
     if (filter === 'running') return c.status === 'running' && c.health !== 'unhealthy';
-    if (filter === 'exited') return c.status === 'exited';
+    if (filter === 'exited') return c.status === 'exited' || c.health === 'unhealthy';
     if (filter === 'snoozed') return c.is_snoozed;
     return true;
   });
 
   const grid = document.getElementById('fleetCardsGrid');
+  if (!grid) return;
+
   if (filtered.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No containers match your search.</div>';
+    grid.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 48px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-card); width: 100%;">
+        <div style="font-size: 36px; margin-bottom: 10px;">🐳</div>
+        <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">No Containers Match Filter</div>
+        <div style="font-size: 13px;">Try clearing your search query or switching tabs.</div>
+      </div>
+    `;
     return;
   }
 
+  const isTable = (viewModes.fleet === 'table');
+
+  if (isTable) {
+    grid.innerHTML = `
+      <div class="dense-table-wrapper">
+        <table class="dense-data-table">
+          <thead>
+            <tr>
+              <th style="width: 140px;">Status</th>
+              <th>Container Name</th>
+              <th>Image Repository</th>
+              <th>State Details</th>
+              <th style="text-align: right;">Quick Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(c => {
+              const isRunning = c.status === 'running' && c.health !== 'unhealthy';
+              const isExited = c.status === 'exited' || c.health === 'unhealthy';
+              const dotClass = isRunning ? 'pulse-dot-green' : (isExited ? 'pulse-dot-red' : 'pulse-dot-amber');
+              const statusPill = isRunning
+                ? '<span class="badge badge-running">● RUNNING</span>'
+                : (c.health === 'unhealthy' ? '<span class="badge badge-unhealthy">● UNHEALTHY</span>' : '<span class="badge badge-exited">● EXITED</span>');
+
+              return `
+                <tr>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="${dotClass}"></span>
+                      ${statusPill}
+                    </div>
+                  </td>
+                  <td>
+                    <strong style="color: var(--text-primary); font-size: 13.5px;">${escapeHtml(c.name)}</strong>
+                    ${c.is_snoozed ? '<span class="badge badge-snoozed" style="font-size: 10px; margin-left: 6px;">⏰ Snoozed</span>' : ''}
+                  </td>
+                  <td class="dense-col-mono" style="color: var(--text-secondary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${escapeHtml(c.image || 'docker-image')}
+                  </td>
+                  <td style="color: var(--text-muted); font-size: 12px;">
+                    ${escapeHtml(c.status || '')} ${c.health ? '· ' + escapeHtml(c.health) : ''}
+                  </td>
+                  <td class="dense-actions-cell">
+                    <button class="btn btn-secondary btn-sm" onclick="openLogsModal('${escapeHtml(c.name)}')">📋 Logs</button>
+                    <button class="btn btn-secondary btn-sm" onclick="openRestartModal('${escapeHtml(c.name)}')">🔄 Restart</button>
+                    <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(c.name)}', '${escapeHtml(c.status)}')">⚡ AI RCA</button>
+                    ${c.is_snoozed 
+                      ? `<button class="btn btn-secondary btn-sm" onclick="unsnoozeContainer('${escapeHtml(c.name)}')">🔔 Unsnooze</button>`
+                      : `<button class="btn btn-secondary btn-sm" onclick="openSnoozeModal('${escapeHtml(c.name)}')">⏰ Snooze</button>`
+                    }
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  // Rows mode (matching Incident Audit pattern)
   grid.innerHTML = filtered.map(c => {
-    let badgeClass = 'badge-running';
-    let statusText = c.status;
-    if (c.health === 'unhealthy') {
-      badgeClass = 'badge-unhealthy';
-      statusText = 'unhealthy';
-    } else if (c.status === 'exited') {
-      badgeClass = 'badge-exited';
-      statusText = 'exited';
-    }
+    const isRunning = c.status === 'running' && c.health !== 'unhealthy';
+    const isExited = c.status === 'exited' || c.health === 'unhealthy';
+    const rowClass = isRunning ? 'status-healthy' : (isExited ? 'status-danger' : 'status-warning');
+    const dotClass = isRunning ? 'pulse-dot-green' : (isExited ? 'pulse-dot-red' : 'pulse-dot-amber');
+    const statusPill = isRunning
+      ? '<span class="badge badge-running">● RUNNING</span>'
+      : (c.health === 'unhealthy' ? '<span class="badge badge-unhealthy">● UNHEALTHY</span>' : '<span class="badge badge-exited">● EXITED</span>');
 
     return `
-      <div class="glass-panel container-card">
-        <div>
-          <div class="container-card-header">
-            <div>
-              <div class="container-name">${escapeHtml(c.name)}</div>
-              <div class="container-image">${escapeHtml(c.image || 'docker-image')}</div>
+      <div class="entity-row-card ${rowClass}">
+        <div class="entity-row-header">
+          <div class="entity-identity-block">
+            <div class="entity-identity-row">
+              <span class="${dotClass}"></span>
+              <span class="entity-title-text">${escapeHtml(c.name)}</span>
+              <span class="badge-source">🐳 Docker Container</span>
+              ${c.is_snoozed ? '<span class="badge badge-snoozed">⏰ Alert Snoozed</span>' : ''}
             </div>
-            <div style="display: flex; gap: 6px; flex-direction: column; align-items: flex-end;">
-              <span class="badge ${badgeClass}">${statusText}</span>
-              ${c.is_snoozed ? '<span class="badge badge-snoozed">⏰ Snoozed</span>' : ''}
-            </div>
+            <div class="entity-sub-identifier">${escapeHtml(c.image || 'docker-image')}</div>
+          </div>
+          <div>${statusPill}</div>
+        </div>
+
+        <div class="entity-details-box">
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">CONTAINER STATE:</span>
+            <span style="color: ${isRunning ? 'var(--color-success)' : 'var(--color-danger)'}; font-weight: 700;">
+              ${escapeHtml(c.status || 'unknown')} ${c.health ? '(' + escapeHtml(c.health) + ')' : ''}
+            </span>
+          </div>
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">SERVICE ID:</span>
+            <span class="entity-detail-sub" style="font-family: 'JetBrains Mono', monospace;">
+              ${escapeHtml((c.id || '').substring(0, 12) || 'auto')}
+            </span>
           </div>
         </div>
 
-        <div class="card-actions">
-          <button class="btn btn-secondary btn-sm" onclick="openLogsModal('${escapeHtml(c.name)}')">📋 Logs</button>
-          <button class="btn btn-secondary btn-sm" onclick="openRestartModal('${escapeHtml(c.name)}')">🔄 Restart</button>
-          <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(c.name)}', '${escapeHtml(c.status)}')">⚡ AI RCA</button>
-          ${c.is_snoozed 
-            ? `<button class="btn btn-secondary btn-sm" onclick="unsnoozeContainer('${escapeHtml(c.name)}')">🔔 Unsnooze</button>`
-            : `<button class="btn btn-secondary btn-sm" onclick="openSnoozeModal('${escapeHtml(c.name)}')">⏰ Snooze</button>`
-          }
+        <div class="entity-row-footer">
+          <div class="entity-meta-list">
+            <span>🛡️ Monitored by Docker Daemon</span>
+            <span>⚡ Automated Crash Recovery Active</span>
+          </div>
+          <div class="entity-actions-group">
+            <button class="btn btn-secondary btn-sm" onclick="openLogsModal('${escapeHtml(c.name)}')">📋 Logs</button>
+            <button class="btn btn-secondary btn-sm" onclick="openRestartModal('${escapeHtml(c.name)}')">🔄 Restart</button>
+            <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(c.name)}', '${escapeHtml(c.status)}')">⚡ AI RCA</button>
+            ${c.is_snoozed 
+              ? `<button class="btn btn-secondary btn-sm" onclick="unsnoozeContainer('${escapeHtml(c.name)}')">🔔 Unsnooze</button>`
+              : `<button class="btn btn-secondary btn-sm" onclick="openSnoozeModal('${escapeHtml(c.name)}')">⏰ Snooze</button>`
+            }
+          </div>
         </div>
       </div>
     `;
@@ -1674,15 +1940,33 @@ async function fetchProbes() {
 }
 
 function filterProbesGrid() {
-  const query = (document.getElementById('probesSearchInput')?.value || '').toLowerCase();
+  const total = cachedProbes.length;
+  const healthy = cachedProbes.filter(p => p.enabled === 1 && Boolean(p.is_healthy)).length;
+  const failing = cachedProbes.filter(p => p.enabled === 1 && !p.is_healthy).length;
+  const paused = cachedProbes.filter(p => p.enabled === 0).length;
+
+  const btnAll = document.getElementById('probeFilterAll');
+  const btnHealth = document.getElementById('probeFilterHealthy');
+  const btnFail = document.getElementById('probeFilterFailing');
+  const btnPause = document.getElementById('probeFilterPaused');
+  if (btnAll) btnAll.innerHTML = `All (${total})`;
+  if (btnHealth) btnHealth.innerHTML = `Operational (${healthy})`;
+  if (btnFail) btnFail.innerHTML = `Degraded (${failing})`;
+  if (btnPause) btnPause.innerHTML = `Paused (${paused})`;
+
+  const query = (document.getElementById('probesSearchInput')?.value || '').toLowerCase().trim();
   const filterBtn = document.querySelector('.probe-filter-btn.active');
   const filter = filterBtn ? filterBtn.dataset.filter : 'all';
 
   const filtered = cachedProbes.filter(p => {
-    const matchesQuery = (p.name || '').toLowerCase().includes(query) || (p.url || '').toLowerCase().includes(query);
+    const matchesQuery = !query ||
+      (p.name || '').toLowerCase().includes(query) ||
+      (p.url || '').toLowerCase().includes(query) ||
+      String(p.status_code || '').includes(query);
     if (!matchesQuery) return false;
-    if (filter === 'healthy') return p.is_healthy;
-    if (filter === 'failing') return !p.is_healthy;
+
+    if (filter === 'healthy') return p.enabled === 1 && Boolean(p.is_healthy);
+    if (filter === 'failing') return p.enabled === 1 && !p.is_healthy;
     if (filter === 'paused') return p.enabled === 0;
     return true;
   });
@@ -1691,12 +1975,86 @@ function filterProbesGrid() {
   if (!list) return;
 
   if (filtered.length === 0) {
-    list.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 40px; grid-column: 1/-1;">No service health checks match your filter.</div>';
+    list.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 48px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-card); width: 100%;">
+        <div style="font-size: 36px; margin-bottom: 10px;">🌐</div>
+        <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">No Service Health Checks Match Filter</div>
+        <div style="font-size: 13px;">All endpoints operating within normal limits or adjust your search filter.</div>
+      </div>
+    `;
     return;
   }
 
+  const isTable = (viewModes.probes === 'table');
+
+  if (isTable) {
+    list.innerHTML = `
+      <div class="dense-table-wrapper">
+        <table class="dense-data-table">
+          <thead>
+            <tr>
+              <th style="width: 140px;">Status</th>
+              <th>Service Name</th>
+              <th>Target URL</th>
+              <th>HTTP Code</th>
+              <th>Latency</th>
+              <th>State</th>
+              <th style="text-align: right;">Quick Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(p => {
+              const isHealthy = Boolean(p.is_healthy);
+              const isPaused = (p.enabled === 0);
+              const dotClass = isPaused ? 'status-dot' : (isHealthy ? 'pulse-dot-green' : 'pulse-dot-red');
+              const latencyText = (isHealthy && p.latency_ms > 0) ? `${p.latency_ms} ms` : '—';
+              const codeBadge = isHealthy
+                ? `<span class="badge badge-running">HTTP ${p.status_code || 200}</span>`
+                : (isPaused ? '<span class="badge badge-snoozed">PAUSED</span>' : `<span class="badge badge-exited">HTTP ${p.status_code || 'ERR'}</span>`);
+
+              return `
+                <tr>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="${dotClass}"></span>
+                      ${codeBadge}
+                    </div>
+                  </td>
+                  <td><strong style="color: var(--text-primary); font-size: 13.5px;">${escapeHtml(p.name)}</strong></td>
+                  <td class="dense-col-mono">
+                    <a href="${escapeHtml(p.url)}" target="_blank" rel="noreferrer" style="color: var(--accent-cyan); text-decoration: none;">
+                      ${escapeHtml(p.url)} ↗
+                    </a>
+                  </td>
+                  <td><span class="dense-col-mono">${p.status_code || '—'}</span></td>
+                  <td><span class="dense-col-mono" style="color: ${p.latency_ms < 300 ? 'var(--color-success)' : 'var(--color-warning)'};">${latencyText}</span></td>
+                  <td>${p.enabled === 1 ? '<span style="color: var(--color-success); font-size: 12px; font-weight: 600;">Active</span>' : '<span style="color: var(--text-muted); font-size: 12px;">Paused</span>'}</td>
+                  <td class="dense-actions-cell">
+                    <button class="btn btn-secondary btn-sm" onclick="toggleProbe(${p.id}, ${p.enabled === 1 ? 'false' : 'true'})">
+                      ${p.enabled === 1 ? 'Pause' : 'Resume'}
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(p.name)}', '${isHealthy ? 'healthy' : 'failing'}', 'Latency: ${p.latency_ms}ms URL: ${escapeHtml(p.url)}')">
+                      ⚡ AI RCA
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})" title="Delete check">🗑</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  // Rows mode (matching Incident Audit pattern)
   list.innerHTML = filtered.map(p => {
     const isHealthy = Boolean(p.is_healthy);
+    const isPaused = (p.enabled === 0);
+    const rowClass = isPaused ? 'status-muted' : (isHealthy ? 'status-healthy' : 'status-danger');
+    const dotClass = isPaused ? 'status-dot' : (isHealthy ? 'pulse-dot-green' : 'pulse-dot-red');
+
     let latencyClass = 'latency-normal';
     let latencyDisplay = `${p.latency_ms} ms`;
     if (!isHealthy || p.latency_ms == null || p.latency_ms <= 0) {
@@ -1710,11 +2068,6 @@ function filterProbesGrid() {
       latencyClass = 'latency-slow';
     }
 
-    const statusBadge = isHealthy
-      ? `<span class="badge badge-running">ONLINE · HTTP ${p.status_code || 200}</span>`
-      : `<span class="badge badge-exited">DOWN ${p.status_code ? '· HTTP ' + p.status_code : '· UNREACHABLE'}</span>`;
-
-    // 12 micro-status spark bars
     const sparkBars = Array.from({ length: 12 }, (_, i) => {
       let barClass = 'uptime-spark-bar';
       if (!isHealthy && i >= 10) barClass += ' down';
@@ -1723,38 +2076,56 @@ function filterProbesGrid() {
     }).join('');
 
     return `
-      <div class="glass-panel probe-item">
-        <div class="probe-header">
-          <div class="probe-title-group">
-            <span class="status-dot ${isHealthy ? 'green' : 'red'}" style="margin-top: 4px;"></span>
-            <div style="min-width: 0;">
-              <div class="probe-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
-              <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" class="probe-url-link">${escapeHtml(p.url)}</a>
+      <div class="entity-row-card ${rowClass}">
+        <div class="entity-row-header">
+          <div class="entity-identity-block">
+            <div class="entity-identity-row">
+              <span class="${dotClass}"></span>
+              <span class="entity-title-text">${escapeHtml(p.name)}</span>
+              <span class="badge-source">🌐 HTTP Probe</span>
+              ${p.enabled === 0 ? '<span class="badge badge-snoozed">○ Paused</span>' : ''}
+            </div>
+            <div class="entity-sub-identifier">
+              <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;">
+                ${escapeHtml(p.url)} ↗
+              </a>
             </div>
           </div>
-          <div>${statusBadge}</div>
+          <div>
+            ${isHealthy 
+              ? `<span class="badge badge-running">● ONLINE · HTTP ${p.status_code || 200}</span>`
+              : (isPaused ? '<span class="badge badge-snoozed">○ PROBE PAUSED</span>' : `<span class="badge badge-exited">● DOWN ${p.status_code ? '· HTTP ' + p.status_code : '· UNREACHABLE'}</span>`)}
+          </div>
         </div>
 
-        <div class="probe-metrics-strip">
-          <div style="display: flex; flex-direction: column; gap: 3px;">
-            <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Response Time</span>
+        <div class="entity-details-box">
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">RESPONSE TIME:</span>
             <span class="latency-pill ${latencyClass}">${latencyDisplay}</span>
           </div>
-          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;">
-            <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Status Pulse</span>
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">EXPECTED:</span>
+            <span class="entity-detail-value">HTTP ${p.expected_status || 200} (timeout ${p.timeout_seconds || 5}s)</span>
+          </div>
+          <div class="entity-detail-item" style="align-items: center; gap: 6px;">
+            <span class="entity-detail-label">STATUS PULSE:</span>
             <div class="uptime-spark-bars">${sparkBars}</div>
           </div>
         </div>
 
-        <div class="probe-actions-footer">
-          <span style="font-size: 12px; color: var(--text-muted);">
-            ${p.enabled === 1 ? '<span style="color: var(--color-success); font-weight: 600;">● Active Service</span>' : '<span style="color: var(--text-muted);">○ Paused</span>'}
-          </span>
-          <div style="display: flex; gap: 6px;">
+        <div class="entity-row-footer">
+          <div class="entity-meta-list">
+            <span>📡 Interval: 60s autonomous heartbeat</span>
+            <span>${p.enabled === 1 ? '● Continuous verification' : '○ Paused by operator'}</span>
+          </div>
+          <div class="entity-actions-group">
             <button class="btn btn-secondary btn-sm" onclick="toggleProbe(${p.id}, ${p.enabled === 1 ? 'false' : 'true'})">
               ${p.enabled === 1 ? 'Pause' : 'Resume'}
             </button>
-            <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})">🗑</button>
+            <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(p.name)}', '${isHealthy ? 'healthy' : 'failing'}', 'Latency: ${p.latency_ms}ms URL: ${escapeHtml(p.url)}')">
+              ⚡ AI RCA
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteProbe(${p.id})" title="Delete check">🗑</button>
           </div>
         </div>
       </div>
@@ -1844,14 +2215,38 @@ async function fetchRenewals() {
 }
 
 function filterRenewalsGrid() {
-  const query = (document.getElementById('renewalsSearchInput')?.value || '').toLowerCase();
+  const activeRenewals = (cachedRenewals || []).filter(r => r.status !== 'cancelled');
+  const total = activeRenewals.length;
+  const vpsCount = activeRenewals.filter(r => (r.category || '').toLowerCase().includes('vps')).length;
+  const domainCount = activeRenewals.filter(r => (r.category || '').toLowerCase().includes('domain')).length;
+  const sslCount = activeRenewals.filter(r => (r.category || '').toLowerCase().includes('ssl')).length;
+  const saasCount = activeRenewals.filter(r => (r.category || '').toLowerCase().includes('saas') || (r.category || '').toLowerCase().includes('client')).length;
+
+  const btnAll = document.getElementById('renewalFilterAll');
+  const btnVps = document.getElementById('renewalFilterVps');
+  const btnDom = document.getElementById('renewalFilterDomain');
+  const btnSsl = document.getElementById('renewalFilterSsl');
+  const btnSaas = document.getElementById('renewalFilterSaas');
+
+  if (btnAll) btnAll.innerHTML = `All (${total})`;
+  if (btnVps) btnVps.innerHTML = `Cloud VPS (${vpsCount})`;
+  if (btnDom) btnDom.innerHTML = `Domains (${domainCount})`;
+  if (btnSsl) btnSsl.innerHTML = `SSL Certs (${sslCount})`;
+  if (btnSaas) btnSaas.innerHTML = `SaaS (${saasCount})`;
+
+  const query = (document.getElementById('renewalsSearchInput')?.value || '').toLowerCase().trim();
   const filterBtn = document.querySelector('.renewal-filter-btn.active');
   const filter = filterBtn ? filterBtn.dataset.filter : 'all';
 
-  const filtered = cachedRenewals.filter(r => {
+  const filtered = (cachedRenewals || []).filter(r => {
     if (r.status === 'cancelled') return false;
-    const matchesQuery = (r.name || '').toLowerCase().includes(query) || (r.category || '').toLowerCase().includes(query) || (r.notes || '').toLowerCase().includes(query);
+    const matchesQuery = !query || 
+      (r.name || '').toLowerCase().includes(query) || 
+      (r.category || '').toLowerCase().includes(query) || 
+      (r.notes || '').toLowerCase().includes(query) ||
+      (r.recurrence || '').toLowerCase().includes(query);
     if (!matchesQuery) return false;
+
     if (filter === 'vps') return (r.category || '').toLowerCase().includes('vps');
     if (filter === 'domain') return (r.category || '').toLowerCase().includes('domain');
     if (filter === 'ssl') return (r.category || '').toLowerCase().includes('ssl');
@@ -1863,25 +2258,128 @@ function filterRenewalsGrid() {
   if (!grid) return;
 
   if (filtered.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No renewals match your search.</div>';
+    grid.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 48px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-card); width: 100%;">
+        <div style="font-size: 36px; margin-bottom: 10px;">💳</div>
+        <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">No Renewals Match Filter</div>
+        <div style="font-size: 13px;">Try adjusting search keywords or category filters.</div>
+      </div>
+    `;
     return;
   }
 
+  const isTable = (viewModes.renewals === 'table');
+
+  if (isTable) {
+    grid.innerHTML = `
+      <div class="dense-table-wrapper">
+        <table class="dense-data-table">
+          <thead>
+            <tr>
+              <th style="width: 150px;">Status / Due</th>
+              <th>Subscription / Service</th>
+              <th>Category</th>
+              <th>Cost / Billing</th>
+              <th>Notes & Context</th>
+              <th style="text-align: right;">Quick Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(r => {
+              const isPaid = r.status === 'paid';
+              const dueDate = new Date(r.due_date);
+              const diffDays = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+              
+              let dotClass = 'pulse-dot-green';
+              let statusPill = `<span class="badge badge-running">● ${escapeHtml(r.due_date)}</span>`;
+
+              if (isPaid) {
+                statusPill = `<span class="badge badge-running">✅ PAID</span>`;
+              } else if (diffDays < 0) {
+                dotClass = 'pulse-dot-red';
+                statusPill = `<span class="badge badge-exited">⚠️ OVERDUE (${Math.abs(diffDays)}d)</span>`;
+              } else if (diffDays <= 7) {
+                dotClass = 'pulse-dot-amber';
+                statusPill = `<span class="badge badge-snoozed">⏳ ${diffDays}d LEFT</span>`;
+              } else if (diffDays <= 30) {
+                statusPill = `<span class="badge badge-snoozed" style="color: var(--accent-cyan);">📅 In ${diffDays}d</span>`;
+              }
+
+              let categoryIcon = '🖥️';
+              const cat = (r.category || '').toLowerCase();
+              if (cat.includes('domain')) categoryIcon = '🌐';
+              else if (cat.includes('ssl')) categoryIcon = '🔒';
+              else if (cat.includes('saas') || cat.includes('client')) categoryIcon = '⚡';
+
+              const currencySymbol = r.currency === 'USD' ? '$' : (r.currency === 'EUR' ? '€' : '₹');
+
+              return `
+                <tr style="${isPaid ? 'opacity: 0.65;' : ''}">
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="${dotClass}"></span>
+                      ${statusPill}
+                    </div>
+                  </td>
+                  <td>
+                    <strong style="color: var(--text-primary); font-size: 13.5px;">${categoryIcon} ${escapeHtml(r.name)}</strong>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Due: ${escapeHtml(r.due_date)}</div>
+                  </td>
+                  <td>
+                    <span class="badge-source">${escapeHtml(r.category || 'other').toUpperCase()}</span>
+                  </td>
+                  <td class="dense-col-mono">
+                    <span style="font-weight: 700; color: var(--text-primary);">
+                      ${currencySymbol}${Number(r.amount || 0).toLocaleString()}
+                    </span>
+                    <span style="font-size: 11px; color: var(--text-muted); display: block;">
+                      / ${escapeHtml(r.recurrence || 'monthly')}
+                    </span>
+                  </td>
+                  <td style="color: var(--text-secondary); font-size: 12px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${escapeHtml(r.notes || '—')}
+                  </td>
+                  <td class="dense-actions-cell">
+                    ${!isPaid ? `
+                      <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})" title="Mark Paid">✅ Paid</button>
+                      <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})" title="Snooze 7 Days">⏰ Snooze</button>
+                      <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})" title="Edit Details">✏️ Edit</button>
+                    ` : ''}
+                    <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})" title="Delete Renewal">🗑</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  // Rows mode (matching Incident Audit pattern)
   grid.innerHTML = filtered.map(r => {
     const isPaid = r.status === 'paid';
-    const isCancelled = r.status === 'cancelled';
-    let dueBadge = `<span class="renewal-due-badge normal">Due: ${escapeHtml(r.due_date)}</span>`;
-
     const dueDate = new Date(r.due_date);
     const diffDays = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
-    if (!isPaid && !isCancelled && diffDays < 0) {
-      dueBadge = `<span class="renewal-due-badge overdue">⚠️ Overdue (${Math.abs(diffDays)}d)</span>`;
-    } else if (!isPaid && !isCancelled && diffDays <= 7) {
-      dueBadge = `<span class="renewal-due-badge soon">⏳ Due in ${diffDays} day${diffDays === 1 ? '' : 's'}</span>`;
-    } else if (!isPaid && !isCancelled && diffDays <= 30) {
-      dueBadge = `<span class="renewal-due-badge normal" style="color: var(--accent-cyan); font-weight: 700;">📅 In ${diffDays} days</span>`;
-    } else if (isPaid) {
-      dueBadge = `<span class="badge badge-running">✅ Paid</span>`;
+
+    let rowClass = 'status-healthy';
+    let dotClass = 'pulse-dot-green';
+    let statusPill = `<span class="badge badge-running">📅 DUE IN ${diffDays} DAYS</span>`;
+
+    if (isPaid) {
+      statusPill = `<span class="badge badge-running">✅ PAID & ACTIVE</span>`;
+    } else if (diffDays < 0) {
+      rowClass = 'status-danger';
+      dotClass = 'pulse-dot-red';
+      statusPill = `<span class="badge badge-exited">⚠️ OVERDUE (${Math.abs(diffDays)}d)</span>`;
+    } else if (diffDays <= 7) {
+      rowClass = 'status-warning';
+      dotClass = 'pulse-dot-amber';
+      statusPill = `<span class="badge badge-snoozed">⏳ DUE IN ${diffDays} DAYS</span>`;
+    } else if (diffDays <= 30) {
+      rowClass = 'status-warning';
+      statusPill = `<span class="badge badge-snoozed" style="color: var(--accent-cyan);">📅 IN ${diffDays} DAYS</span>`;
     }
 
     let categoryIcon = '🖥️';
@@ -1893,35 +2391,54 @@ function filterRenewalsGrid() {
     const currencySymbol = r.currency === 'USD' ? '$' : (r.currency === 'EUR' ? '€' : '₹');
 
     return `
-      <div class="glass-panel renewal-card" style="${isPaid ? 'opacity: 0.6;' : ''}">
-        <div>
-          <div class="renewal-header">
-            <div style="display: flex; gap: 12px; align-items: center;">
-              <div class="renewal-avatar">${categoryIcon}</div>
-              <div>
-                <h3 style="font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">${escapeHtml(r.name)}</h3>
-                <span class="badge badge-snoozed" style="font-size: 10px; text-transform: uppercase;">${escapeHtml(r.category || 'other')}</span>
-              </div>
+      <div class="entity-row-card ${rowClass}" style="${isPaid ? 'opacity: 0.65;' : ''}">
+        <div class="entity-row-header">
+          <div class="entity-identity-block">
+            <div class="entity-identity-row">
+              <span class="${dotClass}"></span>
+              <span class="entity-title-text">${categoryIcon} ${escapeHtml(r.name)}</span>
+              <span class="badge-source">${escapeHtml(r.category || 'other').toUpperCase()}</span>
+              <span class="badge-source">Recurrence: ${escapeHtml(r.recurrence || 'monthly')}</span>
             </div>
-            ${dueBadge}
+            <div class="entity-sub-identifier">${escapeHtml(r.notes || 'Autonomous cloud infrastructure renewal tracking active.')}</div>
           </div>
-          
-          <div style="margin: 16px 0;">
-            <div class="renewal-amount-display">
-              ${currencySymbol}${Number(r.amount || 0).toLocaleString()}
-              <span style="font-size: 13px; font-weight: normal; color: var(--text-muted); margin-left: 6px;">/ ${escapeHtml(r.recurrence || 'monthly')}</span>
-            </div>
-            ${r.notes ? `<p style="font-size: 12.5px; color: var(--text-muted); margin-top: 6px; line-height: 1.45;">${escapeHtml(r.notes)}</p>` : ''}
+          <div>${statusPill}</div>
+        </div>
+
+        <div class="entity-details-box">
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">RECURRING AMOUNT:</span>
+            <span style="color: var(--color-success); font-weight: 700; font-size: 13.5px;">
+              ${currencySymbol}${Number(r.amount || 0).toLocaleString()} 
+              <span class="entity-detail-sub">/ ${escapeHtml(r.recurrence || 'monthly')}</span>
+            </span>
+          </div>
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">SCHEDULED DUE DATE:</span>
+            <span class="entity-detail-value">📅 ${escapeHtml(r.due_date)}</span>
+          </div>
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">PAYMENT STATUS:</span>
+            <span style="color: ${isPaid ? 'var(--color-success)' : (diffDays < 0 ? 'var(--color-danger)' : 'var(--color-warning)')}; font-weight: 700;">
+              ${isPaid ? 'Settled' : (diffDays < 0 ? 'Overdue Action Required' : 'Pending')}
+            </span>
           </div>
         </div>
 
-        <div class="card-actions" style="justify-content: flex-end; gap: 6px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
-          ${!isPaid ? `
-            <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Paid</button>
-            <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze</button>
-            <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
-          ` : ''}
-          <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})" title="Cancel and Delete Renewal">🗑</button>
+        <div class="entity-row-footer">
+          <div class="entity-meta-list">
+            <span>💳 Renewal ID: #${r.id}</span>
+            <span>🌐 Currency: ${escapeHtml(r.currency || 'INR')}</span>
+            <span>🛡️ SRE Auto-Notification: 14d & 3d prior</span>
+          </div>
+          <div class="entity-actions-group">
+            ${!isPaid ? `
+              <button class="btn btn-success btn-sm" onclick="markRenewalPaid(${r.id})">✅ Paid</button>
+              <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze</button>
+              <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
+            ` : ''}
+            <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})" title="Cancel and Delete Renewal">🗑 Delete</button>
+          </div>
         </div>
       </div>
     `;
@@ -2144,6 +2661,82 @@ function renderIncidentsFeed() {
     `;
     return;
   }
+
+  const isTable = (viewModes.incidents === 'table');
+
+  if (isTable) {
+    container.innerHTML = `
+      <div class="dense-table-wrapper">
+        <table class="dense-data-table">
+          <thead>
+            <tr>
+              <th style="width: 140px;">Status</th>
+              <th>Incident Anomaly</th>
+              <th>Target / Source</th>
+              <th>Diagnostics & Detail</th>
+              <th>Timeline & Alerts</th>
+              <th style="text-align: right;">Quick Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(inc => {
+              const isResolved = Boolean(inc.resolved_at);
+              let sourceIcon = '🌐 HTTP';
+              if (inc.source === 'docker') sourceIcon = '🐳 Docker';
+              else if (inc.source === 'ssl') sourceIcon = '🔒 SSL';
+              else if (inc.source === 'domain_renewal') sourceIcon = '🏷️ Domain';
+
+              const dotClass = isResolved ? 'status-dot green' : (inc.severity === 'critical' ? 'pulse-dot-red' : 'pulse-dot-amber');
+              const statusPill = isResolved
+                ? '<span class="badge badge-running">✓ RESOLVED</span>'
+                : (inc.severity === 'critical' ? '<span class="badge badge-exited">🔴 CRITICAL</span>' : '<span class="badge badge-snoozed">🟡 WARNING</span>');
+
+              const durationText = formatIncidentDuration(inc.created_at, inc.resolved_at);
+
+              return `
+                <tr style="${isResolved ? 'opacity: 0.75;' : ''}">
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="${dotClass}"></span>
+                      ${statusPill}
+                    </div>
+                  </td>
+                  <td>
+                    <strong style="color: var(--text-primary); font-size: 13.5px;">${escapeHtml(inc.title)}</strong>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Record #${inc.id}</div>
+                  </td>
+                  <td>
+                    <span class="badge-source">${sourceIcon}</span>
+                    <div class="dense-col-mono" style="color: var(--text-secondary); margin-top: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      ${escapeHtml(inc.target)}
+                    </div>
+                  </td>
+                  <td style="color: var(--text-secondary); font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(inc.detail || '')}">
+                    ${escapeHtml(inc.detail || 'Incident registered by autonomous health probe.')}
+                  </td>
+                  <td style="font-size: 11.5px; color: var(--text-muted); white-space: nowrap;">
+                    <div>🔔 ${inc.alert_count || 1} alert${(inc.alert_count || 1) === 1 ? '' : 's'}</div>
+                    <div>🕒 ${escapeHtml(inc.created_at || 'Just now')}</div>
+                    ${durationText ? `<div style="color: var(--color-success); font-weight: 600;">⏱️ ${durationText}</div>` : ''}
+                  </td>
+                  <td class="dense-actions-cell">
+                    ${!isResolved ? `
+                      <button class="btn btn-primary btn-sm" onclick="openAiRcaModal('${escapeHtml(inc.target)}', '${escapeHtml(inc.severity)}', '${escapeHtml(inc.detail || '')}')" title="AI Root Cause Analysis">✨ RCA</button>
+                      <button class="btn btn-success btn-sm" onclick="resolveIncident(${inc.id})" title="Mark Incident Resolved">✓ Resolve</button>
+                    ` : ''}
+                    <button class="btn btn-danger btn-sm" onclick="deleteIncident(${inc.id})" title="Permanently delete incident">🗑</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  // Rows mode (matching Incident Audit pattern)
 
   container.innerHTML = filtered.map(inc => {
     const isResolved = Boolean(inc.resolved_at);
@@ -2611,12 +3204,31 @@ async function fetchDomains() {
 }
 
 function filterDomainsGrid() {
+  const total = cachedDomains.length;
+  const healthyCount = cachedDomains.filter(d => (d.is_valid && d.days_remaining > 30) && (!d.domain_days_remaining || d.domain_days_remaining > 60)).length;
+  const sslExpCount = cachedDomains.filter(d => d.days_remaining > 0 && d.days_remaining <= 30).length;
+  const domExpCount = cachedDomains.filter(d => d.domain_days_remaining > 0 && d.domain_days_remaining <= 60).length;
+  const attentionCount = cachedDomains.filter(d => !d.is_valid || d.days_remaining <= 30 || (d.domain_days_remaining > 0 && d.domain_days_remaining <= 60)).length;
+
+  const btnAll = document.getElementById('domainFilterAll');
+  const btnHealthy = document.getElementById('domainFilterHealthy');
+  const btnSslExp = document.getElementById('domainFilterSslExp');
+  const btnDomExp = document.getElementById('domainFilterDomExp');
+  const btnAttention = document.getElementById('domainFilterAttention');
+
+  if (btnAll) btnAll.innerHTML = `All (${total})`;
+  if (btnHealthy) btnHealthy.innerHTML = `Healthy (${healthyCount})`;
+  if (btnSslExp) btnSslExp.innerHTML = `SSL Alert (<30d) (${sslExpCount})`;
+  if (btnDomExp) btnDomExp.innerHTML = `Domain Renewal (<60d) (${domExpCount})`;
+  if (btnAttention) btnAttention.innerHTML = `Attention (${attentionCount})`;
+
   const query = (document.getElementById('domainsSearchInput')?.value || '').toLowerCase().trim();
   const filterBtn = document.querySelector('.domain-filter-btn.active');
   const filter = filterBtn ? filterBtn.dataset.filter : 'all';
 
   const filtered = cachedDomains.filter(d => {
-    const matchesQuery = d.domain.toLowerCase().includes(query) || 
+    const matchesQuery = !query || 
+                         d.domain.toLowerCase().includes(query) || 
                          (d.issuer || '').toLowerCase().includes(query) ||
                          (d.registrar || '').toLowerCase().includes(query);
     if (!matchesQuery) return false;
@@ -2643,13 +3255,99 @@ function renderDomainsGrid(domains) {
 
   if (domains.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
-        No SSL & domain targets matching filter. Click "+ Track Domain" to monitor certificates & registrar expiration.
+      <div style="text-align: center; color: var(--text-muted); padding: 48px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-card); width: 100%;">
+        <div style="font-size: 36px; margin-bottom: 10px;">🌐</div>
+        <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">No Domains Match Filter</div>
+        <div style="font-size: 13px;">Try adjusting your search query or click "+ Track Domain" to monitor certificates & registrar expiration.</div>
       </div>
     `;
     return;
   }
 
+  const isTable = (viewModes.domains === 'table');
+
+  if (isTable) {
+    container.innerHTML = `
+      <div class="dense-table-wrapper">
+        <table class="dense-data-table">
+          <thead>
+            <tr>
+              <th style="width: 140px;">Status</th>
+              <th>Domain / Hostname</th>
+              <th>TLS / SSL Certificate</th>
+              <th>Domain Renewal</th>
+              <th>Registrar & Port</th>
+              <th style="text-align: right;">Quick Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${domains.map(d => {
+              const hasDomExp = Boolean(d.domain_expires_at);
+              const isDomExpired = hasDomExp && d.domain_days_remaining <= 0;
+              const isDomExpiring = hasDomExp && d.domain_days_remaining > 0 && d.domain_days_remaining <= 60;
+              const isSslExpiring = d.days_remaining > 0 && d.days_remaining <= 30;
+              const isInvalid = !d.is_valid || d.days_remaining <= 0 || isDomExpired;
+
+              const dotClass = isInvalid ? 'pulse-dot-red' : ((isSslExpiring || isDomExpiring) ? 'pulse-dot-amber' : 'pulse-dot-green');
+              const statusPill = isInvalid
+                ? '<span class="badge badge-exited">🔴 CRITICAL</span>'
+                : ((isSslExpiring || isDomExpiring) ? '<span class="badge badge-snoozed">🟡 ATTENTION</span>' : '<span class="badge badge-running">🟢 SECURED</span>');
+
+              const sslDaysColor = (d.is_valid && d.days_remaining > 30) ? 'var(--color-success)' : (isSslExpiring ? 'var(--color-warning)' : 'var(--color-danger)');
+              const domDaysColor = (!hasDomExp || d.domain_days_remaining > 60) ? 'var(--accent-cyan)' : (isDomExpiring ? 'var(--color-warning)' : 'var(--color-danger)');
+
+              return `
+                <tr>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="${dotClass}"></span>
+                      ${statusPill}
+                    </div>
+                  </td>
+                  <td>
+                    <a href="https://${escapeHtml(d.domain)}" target="_blank" style="color: var(--text-primary); font-weight: 700; font-size: 13.5px; text-decoration: none;" rel="noreferrer">
+                      🌐 ${escapeHtml(d.domain)}
+                    </a>
+                    <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">
+                      Port :${d.port || 443} · TLS 1.3 / HTTPS
+                    </div>
+                  </td>
+                  <td class="dense-col-mono">
+                    <span style="font-weight: 700; color: ${sslDaysColor};">
+                      ${d.days_remaining > 0 ? `${d.days_remaining}d left` : 'Expired'}
+                    </span>
+                    <span style="display: block; font-size: 11px; color: var(--text-muted);">
+                      Exp: ${escapeHtml(d.expires_at || 'N/A')}
+                    </span>
+                  </td>
+                  <td class="dense-col-mono">
+                    <span style="font-weight: 700; color: ${domDaysColor};">
+                      ${d.domain_days_remaining > 0 ? `${d.domain_days_remaining}d left` : (hasDomExp ? 'Due' : 'Active')}
+                    </span>
+                    <span style="display: block; font-size: 11px; color: var(--text-muted);">
+                      Renews: ${escapeHtml(d.domain_expires_at || 'Auto-renew')}
+                    </span>
+                  </td>
+                  <td style="color: var(--text-secondary); font-size: 12px;">
+                    <div>🏷️ ${escapeHtml(d.registrar || 'Standard Registrar')}</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Sync: ${escapeHtml(d.last_checked_at || 'Just now')}</div>
+                  </td>
+                  <td class="dense-actions-cell">
+                    <button class="btn btn-secondary btn-sm" onclick="recheckDomain(${d.id})" id="recheckBtn-${d.id}" title="Recheck TLS & ICANN RDAP">🔄 Recheck</button>
+                    <button class="btn btn-secondary btn-sm" onclick="openEditDomainModal(${d.id})" title="Edit Domain Registrar & Expiry Date">✏️ Edit</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteDomain(${d.id}, '${escapeHtml(d.domain)}')" title="Delete Tracker">🗑</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  // Rows mode (matching Incident Audit pattern)
   container.innerHTML = domains.map(d => {
     // SSL Health
     const isSslHealthy = d.is_valid && d.days_remaining > 30;
@@ -2665,35 +3363,38 @@ function renderDomainsGrid(domains) {
     const domBoxClass = isDomHealthy ? 'highlight-domain' : (isDomExpiring ? 'warning-state' : 'danger-state');
     const domDaysColor = isDomHealthy ? 'var(--accent-cyan)' : (isDomExpiring ? 'var(--color-warning)' : 'var(--color-danger)');
 
-    // Overall Status Tag
-    let overallTag = '<span class="badge badge-running">🟢 Active & Secured</span>';
-    let cardClass = 'valid';
+    // Overall Status
+    let overallTag = '<span class="badge badge-running">🟢 ACTIVE & SECURED</span>';
+    let rowClass = 'status-healthy';
+    let dotClass = 'pulse-dot-green';
     if (!d.is_valid || d.days_remaining <= 0 || isDomExpired) {
-      overallTag = '<span class="badge badge-exited">🔴 Critical Alert</span>';
-      cardClass = 'invalid';
+      overallTag = '<span class="badge badge-exited">🔴 CRITICAL ALERT</span>';
+      rowClass = 'status-danger';
+      dotClass = 'pulse-dot-red';
     } else if (isSslExpiring || isDomExpiring) {
-      overallTag = '<span class="badge badge-snoozed">🟡 Renewal Alert</span>';
-      cardClass = 'expiring';
+      overallTag = '<span class="badge badge-snoozed">🟡 RENEWAL ALERT</span>';
+      rowClass = 'status-warning';
+      dotClass = 'pulse-dot-amber';
     }
 
     return `
-      <div class="glass-panel domain-card ${cardClass}">
-        <!-- Header -->
-        <div class="domain-top-row">
-          <div>
-            <a href="https://${escapeHtml(d.domain)}" target="_blank" class="domain-name-link" rel="noreferrer">
-              <span>🌐</span> ${escapeHtml(d.domain)}
-            </a>
-            <div style="display: flex; gap: 6px; align-items: center; margin-top: 5px; flex-wrap: wrap;">
-              <span class="cert-issuer-badge">🏷️ ${escapeHtml(d.registrar || 'Registrar: Standard')}</span>
-              <span class="cert-issuer-badge">🔒 ${escapeHtml(d.issuer || 'TLS Certificate')}</span>
+      <div class="entity-row-card ${rowClass}">
+        <div class="entity-row-header">
+          <div class="entity-identity-block">
+            <div class="entity-identity-row">
+              <span class="${dotClass}"></span>
+              <a href="https://${escapeHtml(d.domain)}" target="_blank" class="entity-title-text" style="text-decoration: none;" rel="noreferrer">
+                🌐 ${escapeHtml(d.domain)}
+              </a>
+              <span class="badge-source">🔒 Port :${d.port || 443}</span>
+              <span class="badge-source">🏷️ ${escapeHtml(d.registrar || 'Standard Registrar')}</span>
             </div>
+            <div class="entity-sub-identifier">Issuer: ${escapeHtml(d.issuer || 'TLS Certificate Authority')}</div>
           </div>
-          ${overallTag}
+          <div>${overallTag}</div>
         </div>
 
-        <!-- DUAL GOVERNANCE DECK: SSL & Domain Expiry Highlights -->
-        <div class="domain-dual-deck">
+        <div class="domain-dual-deck" style="margin: 4px 0 0 0;">
           <!-- Box 1: TLS / SSL Certificate -->
           <div class="domain-stat-box ${sslBoxClass}">
             <div class="domain-stat-header">
@@ -2704,7 +3405,7 @@ function renderDomainsGrid(domains) {
               ${d.days_remaining > 0 ? `${d.days_remaining}d` : 'Expired'}
             </div>
             <div class="domain-stat-sub">
-              ${d.days_remaining > 0 ? `${d.days_remaining} days left` : 'Certificate Expired'}
+              ${d.days_remaining > 0 ? `${d.days_remaining} days remaining` : 'Certificate Expired'}
             </div>
             <div class="domain-stat-date" title="SSL Certificate Expiry Date">
               Expires: <strong>${escapeHtml(d.expires_at || 'N/A')}</strong>
@@ -2721,7 +3422,7 @@ function renderDomainsGrid(domains) {
               ${d.domain_days_remaining > 0 ? `${d.domain_days_remaining}d` : (hasDomExp ? 'Due' : 'Active')}
             </div>
             <div class="domain-stat-sub">
-              ${d.domain_days_remaining > 0 ? `${d.domain_days_remaining} days left` : (hasDomExp ? 'Renewal Due' : 'Auto-renew active')}
+              ${d.domain_days_remaining > 0 ? `${d.domain_days_remaining} days remaining` : (hasDomExp ? 'Renewal Due' : 'Auto-renew active')}
             </div>
             <div class="domain-stat-date" title="Domain Registrar Expiry Date">
               Renews: <strong>${escapeHtml(d.domain_expires_at || 'Auto-renew')}</strong>
@@ -2729,45 +3430,29 @@ function renderDomainsGrid(domains) {
           </div>
         </div>
 
-        <!-- Metadata List -->
-        <div class="cert-meta-list">
-          <div class="cert-meta-item">
-            <span class="cert-meta-label">Port & Protocol</span>
-            <span class="cert-meta-val">:${d.port || 443} • TLS 1.3 / HTTPS</span>
+        ${d.error ? `
+          <div class="entity-details-box" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.08); color: var(--color-danger);">
+            <span>⚠️ <strong>PROBE WARNING:</strong> ${escapeHtml(d.error)}</span>
           </div>
-          <div class="cert-meta-item">
-            <span class="cert-meta-label">Registrar Entity</span>
-            <span class="cert-meta-val">${escapeHtml(d.registrar || 'Auto-Discovered')}</span>
-          </div>
-          ${d.registration_date ? `
-            <div class="cert-meta-item">
-              <span class="cert-meta-label">Domain Registered</span>
-              <span class="cert-meta-val">${escapeHtml(d.registration_date)}</span>
-            </div>
-          ` : ''}
-          <div class="cert-meta-item">
-            <span class="cert-meta-label">Last Handshake</span>
-            <span class="cert-meta-val">${escapeHtml(d.last_checked_at || 'Just now')}</span>
-          </div>
-          ${d.error ? `
-            <div class="cert-meta-item" style="color: var(--color-danger); margin-top: 4px;">
-              <span class="cert-meta-label" style="color: var(--color-danger);">Error:</span>
-              <span class="cert-meta-val" style="font-size: 11px;">${escapeHtml(d.error)}</span>
-            </div>
-          ` : ''}
-        </div>
+        ` : ''}
 
-        <!-- Actions -->
-        <div class="domain-actions-row">
-          <button class="btn btn-secondary btn-sm" onclick="recheckDomain(${d.id})" id="recheckBtn-${d.id}" title="Recheck TLS & ICANN RDAP">
-            🔄 Recheck Both
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="openEditDomainModal(${d.id})" title="Edit Domain Registrar & Expiry Date">
-            ✏️ Edit Expiry
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="deleteDomain(${d.id}, '${escapeHtml(d.domain)}')" style="color: var(--color-danger);" title="Delete Tracker">
-            🗑 Delete
-          </button>
+        <div class="entity-row-footer">
+          <div class="entity-meta-list">
+            <span>📅 Registered: ${escapeHtml(d.registration_date || 'Standard Registration')}</span>
+            <span>🕒 Last Handshake: ${escapeHtml(d.last_checked_at || 'Just now')}</span>
+            <span>⏱️ Cadence: Daily (12:00 UTC)</span>
+          </div>
+          <div class="entity-actions-group">
+            <button class="btn btn-secondary btn-sm" onclick="recheckDomain(${d.id})" id="recheckBtn-${d.id}" title="Recheck TLS & ICANN RDAP">
+              🔄 Recheck Both
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="openEditDomainModal(${d.id})" title="Edit Domain Registrar & Expiry Date">
+              ✏️ Edit Expiry
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDomain(${d.id}, '${escapeHtml(d.domain)}')" title="Delete Tracker">
+              🗑 Delete
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -2822,9 +3507,9 @@ async function deleteDomain(domainId, domainName) {
   if (!confirm(`Are you sure you want to stop tracking certificate for ${domainName}?`)) return;
   try {
     const res = await apiFetch(`/api/domains/${domainId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (res.ok && data.success) {
-      showToast(data.message, 'success');
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast(data.message || 'Domain removed from tracking.', 'success');
       fetchDomains();
       fetchOverview();
     } else {
@@ -2846,57 +3531,122 @@ async function fetchAlertRoutes() {
     const routes = await res.json();
     window.alertRoutesCache = routes;
 
-    const container = document.getElementById('alertRoutesContainer');
-    if (!container) return;
-
-    if (routes.length === 0) {
-      container.innerHTML = `
-        <div style="text-align: center; color: var(--text-muted); padding: 30px; grid-column: 1/-1;">
-          No custom alert routes configured yet. Click "+ Add Alert Route" to direct alerts to specific Telegram groups.
-        </div>
-      `;
-      return;
-    }
-
-    container.innerHTML = routes.map(r => {
-      const cats = r.categories || [];
-      const evs = r.events || [];
-      const catBadges = cats.map(c => `<span class="route-tag">📂 ${escapeHtml(c)}</span>`).join('');
-      const evBadges = evs.length > 0 
-        ? evs.map(e => `<span class="route-tag" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">🎯 ${escapeHtml(e)}</span>`).join('')
-        : '<span class="route-tag" style="opacity: 0.7;">🎯 all events</span>';
-
-      return `
-        <div class="route-card">
-          <div>
-            <div class="route-header">
-              <span class="route-label">${escapeHtml(r.label)}</span>
-              <span class="badge ${r.enabled ? 'badge-running' : 'badge-snoozed'}">
-                ${r.enabled ? 'Active' : 'Paused'}
-              </span>
-            </div>
-            <div class="route-chatid">💬 ${escapeHtml(r.chat_id)}</div>
-            <div class="route-tags">
-              ${catBadges}
-              ${evBadges}
-            </div>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
-            <button class="btn btn-secondary btn-sm" onclick="testAlertRoute('${escapeHtml(r.chat_id)}')">
-              🧪 Test Alert
-            </button>
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-secondary btn-sm" onclick="openEditRouteModal(${r.id})">✏️ Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteAlertRoute(${r.id})">🗑</button>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    filterAlertRoutes();
   } catch (err) {
     console.error('Error fetching alert routes:', err);
   }
+}
+
+function filterAlertRoutes() {
+  const routes = window.alertRoutesCache || [];
+  const total = routes.length;
+  const enabledCount = routes.filter(r => r.enabled).length;
+  const disabledCount = routes.filter(r => !r.enabled).length;
+
+  const btnAll = document.getElementById('routeFilterAll');
+  const btnEn = document.getElementById('routeFilterEnabled');
+  const btnDis = document.getElementById('routeFilterDisabled');
+
+  if (btnAll) btnAll.innerHTML = `All (${total})`;
+  if (btnEn) btnEn.innerHTML = `Active (${enabledCount})`;
+  if (btnDis) btnDis.innerHTML = `Disabled (${disabledCount})`;
+
+  const query = (document.getElementById('alertRoutesSearchInput')?.value || '').toLowerCase().trim();
+  const filterBtn = document.querySelector('.route-filter-btn.active');
+  const filter = filterBtn ? filterBtn.dataset.filter : 'all';
+
+  const filtered = routes.filter(r => {
+    const matchesQuery = !query ||
+      (r.label || '').toLowerCase().includes(query) ||
+      (r.chat_id || '').toLowerCase().includes(query) ||
+      (r.categories || []).some(c => c.toLowerCase().includes(query)) ||
+      (r.events || []).some(e => e.toLowerCase().includes(query));
+    if (!matchesQuery) return false;
+
+    if (filter === 'enabled') return r.enabled;
+    if (filter === 'disabled') return !r.enabled;
+    return true;
+  });
+
+  renderAlertRoutes(filtered);
+}
+
+function renderAlertRoutes(routes) {
+  const container = document.getElementById('alertRoutesContainer');
+  if (!container) return;
+
+  if (routes.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 48px; background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid var(--border-card); width: 100%; grid-column: 1/-1;">
+        <div style="font-size: 36px; margin-bottom: 10px;">⚡</div>
+        <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">No Alert Routes Match Filter</div>
+        <div style="font-size: 13px;">Adjust your search query or add a new alert route to route incident dispatches.</div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = routes.map(r => {
+    const cats = r.categories || [];
+    const evs = r.events || [];
+    const catBadges = cats.map(c => `<span class="route-tag">📂 ${escapeHtml(c)}</span>`).join('');
+    const evBadges = evs.length > 0 
+      ? evs.map(e => `<span class="route-tag" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">🎯 ${escapeHtml(e)}</span>`).join('')
+      : '<span class="route-tag" style="opacity: 0.7;">🎯 all events</span>';
+
+    return `
+      <div class="entity-row-card ${r.enabled ? 'status-healthy' : 'status-muted'}">
+        <div class="entity-row-header">
+          <div class="entity-identity-block">
+            <div class="entity-identity-row">
+              <span class="${r.enabled ? 'pulse-dot-green' : 'status-dot'}"></span>
+              <span class="entity-title-text">⚡ ${escapeHtml(r.label)}</span>
+              <span class="badge-source">💬 Telegram: ${escapeHtml(r.chat_id)}</span>
+            </div>
+            <div class="entity-sub-identifier">Routing Rule ID: #${r.id}</div>
+          </div>
+          <div>
+            <span class="badge ${r.enabled ? 'badge-running' : 'badge-snoozed'}">
+              ${r.enabled ? '● ACTIVE ROUTE' : '● PAUSED'}
+            </span>
+          </div>
+        </div>
+
+        <div class="entity-details-box">
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">MATCHING CATEGORIES:</span>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+              ${catBadges.length > 0 ? catBadges : '<span class="route-tag" style="opacity: 0.6;">All Categories</span>'}
+            </div>
+          </div>
+          <div class="entity-detail-item">
+            <span class="entity-detail-label">EVENTS:</span>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+              ${evBadges}
+            </div>
+          </div>
+        </div>
+
+        <div class="entity-row-footer">
+          <div class="entity-meta-list">
+            <span>💬 Channel Target: <code>${escapeHtml(r.chat_id)}</code></span>
+            <span>📡 Dispatches: Real-Time Webhook</span>
+          </div>
+          <div class="entity-actions-group">
+            <button class="btn btn-secondary btn-sm" onclick="testAlertRoute('${escapeHtml(r.chat_id)}')">
+              🧪 Test Alert
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="openEditRouteModal(${r.id})">
+              ✏️ Edit
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteAlertRoute(${r.id})" title="Delete Alert Route">
+              🗑 Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function openAddRouteModal() {
@@ -2991,9 +3741,9 @@ async function deleteAlertRoute(routeId) {
   if (!confirm('Are you sure you want to delete this alert route?')) return;
   try {
     const res = await apiFetch(`/api/alert-routes/${routeId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (res.ok && data.success) {
-      showToast('Alert route deleted.', 'success');
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast(data.message || 'Alert route deleted.', 'success');
       fetchAlertRoutes();
     } else {
       showToast(data.detail || 'Failed to delete route.', 'error');

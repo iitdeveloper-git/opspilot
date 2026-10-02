@@ -3,6 +3,19 @@
 All notable changes to OpsPilot are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-10-03
+
+### Added
+- **Standardized SRE Dual View System**: Toggle seamlessly between high-density Cards (`☵ Rows`) and compact SRE data tables (`☰ Table`) across all modules (Fleet, Probes, Domains, Renewals, Incidents, and Alert Routes).
+- **Search & Live Counter Badges**: Instant fuzzy search input filtering and real-time count badges on status pills (`All`, `Healthy`, `Degraded`, `Critical`).
+- **Telemetry Polling Cadence Control**: User-selectable auto-refresh intervals (15s, 30s, 60s, 2m, 5m, Off) in both top navigation bar and Settings tab with instant on-demand `↻ Sync`.
+- **Domain & SSL Expiry Dual Governance**: Dual tracking of SSL X.509 certificate expiry and registrar domain expiration via ICANN RDAP protocol with once-daily automated background scheduler.
+- **High-Contrast Theme Engine**: Redesigned Light Mode (`data-theme="light"`) color tokens for audit feeds and entity details, guaranteeing WCAG AAA compliance and eliminating faded text.
+
+### Fixed
+- **Item Deletion Robustness**: Hardened delete handlers across probes, renewals, domains, and routes with graceful error fallbacks.
+- **Server Load Optimization**: Defaulted frontend refresh cadence to 60 seconds (down from 5 seconds), decreasing background API polling overhead by 92%.
+
 ## [0.4.0] - 2026-09-30
 
 ### Added

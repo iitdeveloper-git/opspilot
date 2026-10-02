@@ -114,7 +114,7 @@ def create_web_app(settings: Settings | None = None, channel: Any = None) -> Fas
     app = FastAPI(
         title="OpsPilot 2.0 Command Center",
         description="Autonomous Infrastructure & Billing Command Center",
-        version="0.4.0",
+        version="0.5.0",
         docs_url=None,  # Disabled for security by default
         redoc_url=None,
         lifespan=lifespan,

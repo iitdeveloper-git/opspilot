@@ -5,9 +5,10 @@
 - [x] v0.2.0: Time-based container alert snooze & ignore registry.
 - [x] v0.3.0: Dynamic SQLite-backed renewals, HTTP/SSL probes, and incident feed.
 - [x] v0.4.0: High-performance Web Command Center with session auth and CSRF protection.
+- [x] v0.5.0: Standardized SRE dual-view system (Cards/Tables), theme-aware contrast engine, live filter badges, and configurable polling cadence.
 - [x] Sendrin Architecture Alignment: Standardized `deploy/`, `docs/`, `scripts/`, `Makefile`, and `AGENTS.md`.
 
-## Upcoming Initiatives (v0.5.0+)
+## Upcoming Initiatives (v0.6.0+)
 - [ ] Multi-Host Mesh: Single command center monitoring multiple nodes over secure agent tokens.
 - [ ] Push Notifications: Web Push & In-App notification drawer using Sendrin (`gns`) adapter.
 - [ ] Live Streaming Terminal: WebSocket-based interactive container log streamer.

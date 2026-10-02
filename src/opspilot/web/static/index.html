@@ -65,7 +65,7 @@
               <span class="brand-name">OpsPilot <span class="gradient-text">2.0</span></span>
               <div class="brand-meta-row">
                 <span class="brand-badge-prod">PROD</span>
-                <span class="brand-version">v0.4.0</span>
+                <span class="brand-version">v0.5.0</span>
               </div>
             </div>
           </a>
@@ -231,12 +231,22 @@
             <button class="btn btn-primary btn-sm" onclick="openAiRcaModal()" title="Run AI SRE Root Cause Diagnosis" style="gap: 5px; padding: 5px 12px; font-size: 12px;">
               <span>⚡</span><span>AI RCA</span>
             </button>
-            <button id="manualSyncBtn" class="btn btn-secondary btn-sm" title="Instant synchronize all telemetry">
+            <button id="manualSyncBtn" class="btn btn-secondary btn-sm" title="Instant synchronize all telemetry (On-Demand)">
               <span>↻ Sync</span>
             </button>
-            <button id="refreshTimerBtn" class="btn btn-secondary btn-sm" title="Click to pause/resume auto-refresh">
-              ⏱ <span id="refreshTimerCountdown">5s</span>
-            </button>
+            <div class="refresh-control-wrap">
+              <select id="autoRefreshIntervalSelect" class="refresh-interval-select" title="Auto-refresh interval cadence">
+                <option value="15">⏱ 15s</option>
+                <option value="30">⏱ 30s</option>
+                <option value="60" selected>⏱ 60s (Recommended)</option>
+                <option value="120">⏱ 2m</option>
+                <option value="300">⏱ 5m</option>
+                <option value="0">⏱ Off (Manual)</option>
+              </select>
+              <button id="refreshTimerBtn" class="btn btn-secondary btn-sm" title="Click to pause/resume auto-refresh" style="padding: 5px 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px;">
+                <span id="refreshTimerCountdown">60s</span>
+              </button>
+            </div>
             <button id="themeToggleBtn" class="btn btn-secondary btn-sm" title="Toggle Light/Dark Theme" style="padding: 6px 10px;">
               <span id="themeIcon">🌙</span>
             </button>
@@ -496,23 +506,62 @@
           <!-- ── TAB 2: DOCKER FLEET ───────────────────────────────────────── -->
           <section id="tab-fleet" class="tab-content">
             <div class="section-header">
-              <h2 class="section-title">
-                Docker Service Fleet
-                <span class="badge badge-running" id="fleetRunningBadge">0 RUNNING</span>
-              </h2>
+              <div>
+                <h2 class="section-title">
+                  Docker Service Fleet
+                  <span class="badge badge-running" id="fleetRunningBadge">0 RUNNING</span>
+                </h2>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+                  Container lifecycle state, resource telemetry, health status, and automated AI root-cause recovery
+                </p>
+              </div>
               <div class="filter-bar">
-                <input type="text" id="fleetSearchInput" class="search-input" placeholder="Filter containers (e.g. gns, iam, growixa)...">
-                <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-secondary btn-sm fleet-filter-btn active" data-filter="all">All</button>
-                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="running">Running</button>
-                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="exited">Exited</button>
-                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="snoozed">Snoozed</button>
+                <div class="search-input-wrap">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" id="fleetSearchInput" class="search-input" placeholder="Filter containers (e.g. gns, iam, growixa)...">
                 </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn active" data-filter="all" id="fleetFilterAll">All</button>
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="running" id="fleetFilterRunning">Running</button>
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="exited" id="fleetFilterExited">Exited</button>
+                  <button class="btn btn-secondary btn-sm fleet-filter-btn" data-filter="snoozed" id="fleetFilterSnoozed">Snoozed</button>
+                </div>
+                <div class="view-mode-toggle" id="fleetViewToggle">
+                  <button class="view-toggle-btn active" data-tab="fleet" data-view="rows" title="Detailed Rows View">☵ Rows</button>
+                  <button class="view-toggle-btn" data-tab="fleet" data-view="table" title="Compact Table View">☰ Table</button>
+                </div>
+                <button class="btn btn-secondary btn-sm" id="fleetPruneBtn" onclick="openPruneModal()" title="Prune unused containers and dangling images">
+                  🧹 Prune
+                </button>
               </div>
             </div>
 
-            <div id="fleetCardsGrid" class="fleet-grid">
-              <!-- Dynamically generated container cards -->
+            <!-- Fleet KPI Stats Bar -->
+            <div class="probe-kpi-grid">
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Monitored Containers</span>
+                <div class="incident-kpi-val" id="fleetKpiTotal">0</div>
+                <span class="incident-kpi-sub">Total managed services</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Running & Healthy</span>
+                <div class="incident-kpi-val" style="color: var(--color-success);" id="fleetKpiRunning">0</div>
+                <span class="incident-kpi-sub">Active workloads</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Exited / Failing</span>
+                <div class="incident-kpi-val" style="color: var(--color-danger);" id="fleetKpiExited">0</div>
+                <span class="incident-kpi-sub">Stopped or crashed</span>
+              </div>
+              <div class="glass-panel incident-kpi-card">
+                <span class="incident-kpi-label">Snoozed Alerts</span>
+                <div class="incident-kpi-val" style="color: var(--color-warning);" id="fleetKpiSnoozed">0</div>
+                <span class="incident-kpi-sub">Muted notifications</span>
+              </div>
+            </div>
+
+            <div id="fleetCardsGrid" class="fleet-feed">
+              <!-- Dynamically generated containers -->
             </div>
           </section>
 
@@ -526,12 +575,19 @@
                 </p>
               </div>
               <div class="filter-bar">
-                <input type="text" id="probesSearchInput" class="search-input" placeholder="Filter services (e.g. iam, api, growixa)...">
-                <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-secondary btn-sm probe-filter-btn active" data-filter="all">All</button>
-                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="healthy">Operational</button>
-                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="failing">Degraded</button>
-                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="paused">Paused</button>
+                <div class="search-input-wrap">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" id="probesSearchInput" class="search-input" placeholder="Filter services (e.g. iam, api, growixa)...">
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary btn-sm probe-filter-btn active" data-filter="all" id="probeFilterAll">All</button>
+                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="healthy" id="probeFilterHealthy">Operational</button>
+                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="failing" id="probeFilterFailing">Degraded</button>
+                  <button class="btn btn-secondary btn-sm probe-filter-btn" data-filter="paused" id="probeFilterPaused">Paused</button>
+                </div>
+                <div class="view-mode-toggle" id="probesViewToggle">
+                  <button class="view-toggle-btn active" data-tab="probes" data-view="rows" title="Detailed Rows View">☵ Rows</button>
+                  <button class="view-toggle-btn" data-tab="probes" data-view="table" title="Compact Table View">☰ Table</button>
                 </div>
                 <button class="btn btn-primary btn-sm" id="openAddProbeBtn">+ Add Service Health</button>
               </div>
@@ -561,7 +617,7 @@
               </div>
             </div>
 
-            <div id="probesListContainer" class="probe-list">
+            <div id="probesListContainer" class="probes-feed">
               <!-- Dynamically generated probes -->
             </div>
           </section>
@@ -576,13 +632,20 @@
                 </p>
               </div>
               <div class="filter-bar">
-                <input type="text" id="domainsSearchInput" class="search-input" placeholder="Filter domains (e.g. auth, api, sendrin)...">
-                <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-secondary btn-sm domain-filter-btn active" data-filter="all">All</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="healthy">Healthy</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="ssl-expiring">SSL Alert (&lt;30d)</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="domain-expiring">Domain Renewal (&lt;60d)</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="attention">Attention</button>
+                <div class="search-input-wrap">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" id="domainsSearchInput" class="search-input" placeholder="Filter domains (e.g. auth, api, sendrin)...">
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary btn-sm domain-filter-btn active" data-filter="all" id="domainFilterAll">All</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="healthy" id="domainFilterHealthy">Healthy</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="ssl-expiring" id="domainFilterSslExp">SSL Alert (&lt;30d)</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="domain-expiring" id="domainFilterDomExp">Domain Renewal (&lt;60d)</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="attention" id="domainFilterAttention">Attention</button>
+                </div>
+                <div class="view-mode-toggle" id="domainsViewToggle">
+                  <button class="view-toggle-btn active" data-tab="domains" data-view="rows" title="Detailed Rows View">☵ Rows</button>
+                  <button class="view-toggle-btn" data-tab="domains" data-view="table" title="Compact Table View">☰ Table</button>
                 </div>
                 <button class="btn btn-primary btn-sm" id="openAddDomainBtn">+ Track Domain</button>
               </div>
@@ -612,7 +675,7 @@
               </div>
             </div>
 
-            <div id="domainsGridContainer" class="domains-grid">
+            <div id="domainsGridContainer" class="domains-feed">
               <!-- Dynamically populated domain cards -->
             </div>
           </section>
@@ -627,13 +690,20 @@
                 </p>
               </div>
               <div class="filter-bar">
-                <input type="text" id="renewalsSearchInput" class="search-input" placeholder="Search renewals (e.g. OVH, Sendrin, SSL)...">
-                <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-secondary btn-sm renewal-filter-btn active" data-filter="all">All</button>
-                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="vps">Cloud VPS</button>
-                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="domain">Domains</button>
-                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="ssl">SSL Certs</button>
-                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="saas">SaaS</button>
+                <div class="search-input-wrap">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" id="renewalsSearchInput" class="search-input" placeholder="Search renewals (e.g. OVH, Sendrin, SSL)...">
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn active" data-filter="all" id="renewalFilterAll">All</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="vps" id="renewalFilterVps">Cloud VPS</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="domain" id="renewalFilterDomain">Domains</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="ssl" id="renewalFilterSsl">SSL Certs</button>
+                  <button class="btn btn-secondary btn-sm renewal-filter-btn" data-filter="saas" id="renewalFilterSaas">SaaS</button>
+                </div>
+                <div class="view-mode-toggle" id="renewalsViewToggle">
+                  <button class="view-toggle-btn active" data-tab="renewals" data-view="rows" title="Detailed Rows View">☵ Rows</button>
+                  <button class="view-toggle-btn" data-tab="renewals" data-view="table" title="Compact Table View">☰ Table</button>
                 </div>
                 <button class="btn btn-primary btn-sm" id="openAddRenewalBtn">+ Add Renewal / Invoice</button>
               </div>
@@ -666,7 +736,7 @@
             <!-- Dual-Deck Layout: Renewals Bento Grid + Schedule Sidebar -->
             <div class="renewals-layout-deck">
               <!-- Left Grid -->
-              <div id="renewalsGridContainer" class="renewals-grid">
+              <div id="renewalsGridContainer" class="renewals-feed">
                 <!-- Dynamically generated renewal cards -->
               </div>
 
@@ -699,12 +769,19 @@
                 </p>
               </div>
               <div class="filter-bar">
-                <input type="text" id="incidentsSearchInput" class="search-input" placeholder="Filter by service, URL, or error...">
-                <div style="display: flex; gap: 6px;">
+                <div class="search-input-wrap">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" id="incidentsSearchInput" class="search-input" placeholder="Filter by service, URL, or error...">
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                   <button class="btn btn-secondary btn-sm incident-filter-btn active" data-filter="all" id="filterBtn-all">All</button>
                   <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="active" id="filterBtn-active">Active</button>
                   <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="resolved" id="filterBtn-resolved">Resolved</button>
                   <button class="btn btn-secondary btn-sm incident-filter-btn" data-filter="critical" id="filterBtn-critical">Critical</button>
+                </div>
+                <div class="view-mode-toggle" id="incidentsViewToggle">
+                  <button class="view-toggle-btn active" data-tab="incidents" data-view="rows" title="Detailed Rows View">☵ Rows</button>
+                  <button class="view-toggle-btn" data-tab="incidents" data-view="table" title="Compact Table View">☰ Table</button>
                 </div>
               </div>
             </div>
@@ -891,9 +968,50 @@
                   <button class="btn btn-primary btn-sm" id="openAddRouteBtn">+ Add Alert Route</button>
                 </div>
 
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+                  <div class="search-input-wrap" style="max-width: 320px;">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="alertRoutesSearchInput" class="search-input" placeholder="Search routes by label or chat ID...">
+                  </div>
+                  <div style="display: flex; gap: 6px;">
+                    <button class="btn btn-secondary btn-sm route-filter-btn active" data-filter="all" id="routeFilterAll">All</button>
+                    <button class="btn btn-secondary btn-sm route-filter-btn" data-filter="enabled" id="routeFilterEnabled">Active</button>
+                    <button class="btn btn-secondary btn-sm route-filter-btn" data-filter="disabled" id="routeFilterDisabled">Disabled</button>
+                  </div>
+                </div>
+
                 <!-- Routes Container -->
                 <div id="alertRoutesContainer" class="routes-grid">
                   <!-- Dynamically populated routes -->
+                </div>
+              </div>
+
+              <!-- ⏱ Polling & Auto-Refresh Cadence Card -->
+              <div class="glass-panel" id="pollingCadenceCard" style="padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+                  <div>
+                    <h3 style="font-size: 17px; margin-bottom: 4px; font-weight: 700;">⏱ Telemetry Polling & Auto-Refresh Cadence</h3>
+                    <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+                      Configure how frequently the Command Center refreshes data from the server. Operators can choose 30s to 60s or disable automatic polling to minimize server load.
+                    </p>
+                  </div>
+                  <span class="badge badge-running">⚡ On-Demand "↻ Sync" Always Active</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; align-items: center; margin-top: 14px;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" for="settingsRefreshIntervalSelect">Auto-Refresh Interval (Seconds)</label>
+                    <select id="settingsRefreshIntervalSelect" class="form-select">
+                      <option value="15">15 seconds (High Frequency Diagnostics)</option>
+                      <option value="30">30 seconds (Standard Operational)</option>
+                      <option value="60" selected>60 seconds (Recommended - Low Server Overhead)</option>
+                      <option value="120">2 minutes (Relaxed Monitoring)</option>
+                      <option value="300">5 minutes (Minimal Network Footprint)</option>
+                      <option value="0">Disabled (Manual On-Demand "↻ Sync" Only)</option>
+                    </select>
+                    <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 5px;">
+                      Saved in browser storage and applied automatically. You can always click "↻ Sync" for instant telemetry.
+                    </span>
+                  </div>
                 </div>
               </div>
 
