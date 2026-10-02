@@ -579,35 +579,36 @@
                 <input type="text" id="domainsSearchInput" class="search-input" placeholder="Filter domains (e.g. auth, api, sendrin)...">
                 <div style="display: flex; gap: 6px;">
                   <button class="btn btn-secondary btn-sm domain-filter-btn active" data-filter="all">All</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="valid">Valid</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="expiring">Expiring Soon</button>
-                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="invalid">Invalid</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="healthy">Healthy</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="ssl-expiring">SSL Alert (&lt;30d)</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="domain-expiring">Domain Renewal (&lt;60d)</button>
+                  <button class="btn btn-secondary btn-sm domain-filter-btn" data-filter="attention">Attention</button>
                 </div>
                 <button class="btn btn-primary btn-sm" id="openAddDomainBtn">+ Track Domain</button>
               </div>
             </div>
 
-            <!-- Domain KPI Stats Bar -->
+            <!-- Domain KPI Stats Bar: Both SSL & Domain Governance -->
             <div class="incident-kpi-grid">
               <div class="glass-panel incident-kpi-card">
                 <span class="incident-kpi-label">Tracked Domains</span>
                 <div class="incident-kpi-val" id="totalDomainsVal">0</div>
-                <span class="incident-kpi-sub">Active SSL TLS monitoring</span>
+                <span class="incident-kpi-sub">SSL & Domain governance active</span>
               </div>
               <div class="glass-panel incident-kpi-card">
-                <span class="incident-kpi-label">Valid Certificates</span>
+                <span class="incident-kpi-label">Valid SSL Certificates</span>
                 <div class="incident-kpi-val" style="color: var(--color-success);" id="validCertsVal">0</div>
                 <span class="incident-kpi-sub">Trusted by major root CAs</span>
               </div>
               <div class="glass-panel incident-kpi-card">
-                <span class="incident-kpi-label">Expiring Soon</span>
+                <span class="incident-kpi-label">SSL Expiring Soon</span>
                 <div class="incident-kpi-val" style="color: var(--color-warning);" id="expiringSoonCertsVal">0</div>
-                <span class="incident-kpi-sub">Less than 30 days remaining</span>
+                <span class="incident-kpi-sub">Less than 30 days on TLS</span>
               </div>
               <div class="glass-panel incident-kpi-card">
-                <span class="incident-kpi-label">Earliest Expiry</span>
-                <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="nextCertExpiryVal">--</div>
-                <span class="incident-kpi-sub">Nearest certificate renewal window</span>
+                <span class="incident-kpi-label">Domain Renewals Due</span>
+                <div class="incident-kpi-val" style="color: var(--accent-cyan);" id="domainRenewalDueVal">0</div>
+                <span class="incident-kpi-sub">Under 60 days on registrar</span>
               </div>
             </div>
 
@@ -1031,9 +1032,53 @@
           <label class="form-label">Port</label>
           <input type="number" id="domainPortInput" class="form-input" value="443" min="1" max="65535" required>
         </div>
+        <div class="form-group">
+          <label class="form-label">Registrar (Optional)</label>
+          <input type="text" id="domainRegistrarInput" class="form-input" placeholder="e.g. GoDaddy, Cloudflare, Namecheap (auto-detected if blank)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Domain Registration Expiry Date (Optional)</label>
+          <input type="date" id="domainExpiryInput" class="form-input">
+          <span style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display: block;">
+            Leave blank to automatically query ICANN RDAP for live registration & renewal dates.
+          </span>
+        </div>
         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
           <button type="button" class="btn btn-secondary" onclick="closeModal('addDomainModal')">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="addDomainSubmitBtn">Probe & Track Certificate</button>
+          <button type="submit" class="btn btn-primary" id="addDomainSubmitBtn">Probe & Track Domain</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── MODAL: Edit Domain Governance & Renewal ───────────────────────────── -->
+  <div id="editDomainModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 18px;">Edit Domain Governance & Expiry</h3>
+        <button class="modal-close" onclick="closeModal('editDomainModal')">&times;</button>
+      </div>
+      <form id="editDomainForm">
+        <input type="hidden" id="editDomainIdInput">
+        <div class="form-group">
+          <label class="form-label">Domain Name</label>
+          <input type="text" id="editDomainNameInput" class="form-input" readonly style="opacity: 0.85;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Port</label>
+          <input type="number" id="editDomainPortInput" class="form-input" min="1" max="65535" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Domain Registrar</label>
+          <input type="text" id="editDomainRegistrarInput" class="form-input" placeholder="e.g. GoDaddy, Cloudflare, Namecheap">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Domain Registration Expiry Date</label>
+          <input type="date" id="editDomainExpiryInput" class="form-input">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('editDomainModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="editDomainSubmitBtn">Save Governance</button>
         </div>
       </form>
     </div>

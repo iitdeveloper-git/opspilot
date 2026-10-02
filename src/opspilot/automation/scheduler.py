@@ -5,10 +5,11 @@ Fix #6: Endpoints are DB-only after initial seed. No YAML fallback in the schedu
 Fix #7: asyncio.gather exceptions are logged, not silently discarded.
 
 Loops:
-  1. _run_health_loop   — Docker containers + disk (every interval_seconds)
-  2. _run_probe_loop    — HTTP endpoint uptime from DB (every interval_seconds)
-  3. _run_renewal_loop  — Billing reminders, once per UTC day
-  4. _run_maintenance   — Incident pruning + snooze cleanup, hourly
+  1. _run_health_loop            — Docker containers + disk (every interval_seconds)
+  2. _run_probe_loop             — HTTP endpoint uptime from DB (every interval_seconds)
+  3. _run_renewal_loop           — Billing reminders, once per UTC day
+  4. _run_domain_governance_loop — SSL & Domain registration renewal check, once per UTC day
+  5. _run_maintenance            — Incident pruning + snooze cleanup, hourly
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from opspilot.chatops.telegram.templates import (
     container_alert,
     container_recovered,
     disk_critical,
+    domain_expiring,
     probe_down,
     probe_recovered,
     renewal_reminder,
@@ -35,13 +37,13 @@ from opspilot.chatops.telegram.templates import (
 )
 from opspilot.config import Settings
 from opspilot.core.executor import SafeOperationExecutor
+from opspilot.db import domains as domains_db
 from opspilot.db import endpoints as ep_db
 from opspilot.db import incidents as inc_db
 from opspilot.db import renewals as ren_db
 from opspilot.db import snooze as snooze_db
 from opspilot.monitor.docker import collect_docker_statuses
 from opspilot.monitor.probes import probe_http_endpoint
-from opspilot.monitor.ssl import check_domain_ssl
 from opspilot.monitor.system import collect_system_metrics
 
 logger = logging.getLogger("opspilot.scheduler")
@@ -60,6 +62,7 @@ class BackgroundScheduler:
         self.executor = SafeOperationExecutor()
         self.running = False
         self._last_renewal_date: str | None = None
+        self._last_domain_check_date: str | None = None
         self._last_maintenance: datetime | None = None
 
     async def start(self) -> None:
@@ -81,6 +84,11 @@ class BackgroundScheduler:
                 await self._run_renewal_loop_if_due()
             except Exception as e:
                 logger.error(f"Scheduler renewal_loop raised: {e}", exc_info=e)
+
+            try:
+                await self._run_domain_governance_loop_if_due()
+            except Exception as e:
+                logger.error(f"Scheduler domain_governance_loop raised: {e}", exc_info=e)
 
             try:
                 await self._run_maintenance_if_due()
@@ -163,27 +171,6 @@ class BackgroundScheduler:
                         event="container_recovered",
                     )
 
-        # SSL — route through incidents for dedupe (Fix #8 partial)
-        for domain in self.settings.monitoring.ssl_domains:
-            ssl_res = await asyncio.to_thread(check_domain_ssl, domain)
-            if ssl_res.is_valid and ssl_res.days_remaining <= 14:
-                inc_id, is_new, inc_snoozed = await inc_db.open_incident(
-                    source="ssl",
-                    target=domain,
-                    severity="warning",
-                    title=f"SSL expiring: {domain}",
-                    detail=f"{ssl_res.days_remaining} days left",
-                )
-                if is_new and not inc_snoozed:
-                    await self._notify(
-                        ssl_expiring(domain, ssl_res.days_remaining, ssl_res.expires_at),
-                        category="ssl",
-                        target=domain,
-                        event="ssl_expiring",
-                    )
-            else:
-                await inc_db.resolve_incident("ssl", domain)
-
     async def _get_incident(self, inc_id: int) -> dict | None:
         from opspilot.db.engine import db_conn
 
@@ -262,6 +249,95 @@ class BackgroundScheduler:
             kb = get_renewal_alert_keyboard(renewal["id"])
             await self._notify(msg, kb, category="billing", target=renewal.get("name", ""), event="renewal_due")
             await ren_db.mark_reminded(renewal["id"])
+
+    # ─── Loop 3b: Domain Governance (once per UTC day) ─────────────────────────
+
+    async def _run_domain_governance_loop_if_due(self) -> None:
+        today_utc = datetime.now(UTC).strftime("%Y-%m-%d")
+        if self._last_domain_check_date == today_utc:
+            return
+        self._last_domain_check_date = today_utc
+        await self._run_domain_governance_loop()
+
+    async def _run_domain_governance_loop(self) -> None:
+        """Daily inspection of tracked domain SSL certificates and ICANN registration renewal dates."""
+        if self.settings.monitoring.ssl_domains:
+            try:
+                await domains_db.seed_domains(self.settings.monitoring.ssl_domains)
+            except Exception as e:
+                logger.warning(f"Error seeding domains from settings: {e}")
+
+        domains = await domains_db.list_domains()
+        for dom in domains:
+            domain_name = dom["domain"]
+            try:
+                updated = await domains_db.recheck_domain(dom["id"])
+                if not updated:
+                    continue
+
+                # 1. SSL Certificate Checks
+                if not updated["is_valid"]:
+                    inc_id, is_new, inc_snoozed = await inc_db.open_incident(
+                        source="ssl",
+                        target=domain_name,
+                        severity="critical",
+                        title=f"SSL certificate invalid or error: {domain_name}",
+                        detail=updated.get("error") or "Invalid certificate",
+                    )
+                    if is_new and not inc_snoozed:
+                        await self._notify(
+                            f"🚨 <b>SSL Certificate Error</b>\nDomain: <code>{domain_name}</code>\nError: {updated.get('error') or 'Certificate invalid'}",
+                            category="ssl",
+                            target=domain_name,
+                            event="ssl_error",
+                        )
+                elif updated["days_remaining"] <= 30:
+                    severity = "critical" if updated["days_remaining"] <= 7 else "warning"
+                    inc_id, is_new, inc_snoozed = await inc_db.open_incident(
+                        source="ssl",
+                        target=domain_name,
+                        severity=severity,
+                        title=f"SSL expiring: {domain_name} ({updated['days_remaining']}d left)",
+                        detail=f"{updated['days_remaining']} days left, expires {updated.get('expires_at')}",
+                    )
+                    if is_new and not inc_snoozed:
+                        await self._notify(
+                            ssl_expiring(domain_name, updated["days_remaining"], updated.get("expires_at", "")),
+                            category="ssl",
+                            target=domain_name,
+                            event="ssl_expiring",
+                        )
+                else:
+                    await inc_db.resolve_incident("ssl", domain_name)
+
+                # 2. ICANN Domain Registration Renewal Checks
+                dom_days = updated.get("domain_days_remaining", 0)
+                if dom_days > 0 and dom_days <= 60:
+                    severity = "critical" if dom_days <= 15 else "warning"
+                    inc_id, is_new, inc_snoozed = await inc_db.open_incident(
+                        source="domain_renewal",
+                        target=domain_name,
+                        severity=severity,
+                        title=f"Domain registration renewal due: {domain_name} ({dom_days}d left)",
+                        detail=f"{dom_days} days left with registrar {updated.get('registrar', 'Unknown')}",
+                    )
+                    if is_new and not inc_snoozed:
+                        await self._notify(
+                            domain_expiring(
+                                domain_name,
+                                dom_days,
+                                updated.get("domain_expires_at", ""),
+                                updated.get("registrar", ""),
+                            ),
+                            category="billing",
+                            target=domain_name,
+                            event="domain_expiring",
+                        )
+                elif dom_days > 60:
+                    await inc_db.resolve_incident("domain_renewal", domain_name)
+
+            except Exception as e:
+                logger.error(f"Error checking domain governance for {domain_name}: {e}")
 
     # ─── Loop 4: Maintenance (hourly) ─────────────────────────────────────────
 

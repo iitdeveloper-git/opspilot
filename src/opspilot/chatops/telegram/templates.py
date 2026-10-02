@@ -123,6 +123,22 @@ def ssl_expiring(domain: str, days_remaining: int, expires_at: str) -> str:
     )
 
 
+def domain_expiring(domain: str, days_remaining: int, expires_at: str, registrar: str = "") -> str:
+    badge = _days_badge(days_remaining)
+    reg_line = f"🏢 <b>Registrar:</b> {registrar}\n" if registrar else ""
+    return (
+        f"🌐 <b>Domain Registration Expiring</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ <b>Domain:</b> <code>{domain}</code>\n"
+        f"{reg_line}"
+        f"📅 <b>Expires:</b> {expires_at}\n"
+        f"⏳ {badge}\n"
+        f"🕐 <b>Checked:</b> {_now_str()}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Renew domain with registrar to prevent DNS service outage.</i>"
+    )
+
+
 # ─── Disk / System Alerts ─────────────────────────────────────────────────────
 
 

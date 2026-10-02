@@ -192,23 +192,25 @@ function setupEventListeners() {
   document.getElementById('openAddRenewalBtn')?.addEventListener('click', () => openModal('addRenewalModal'));
   document.getElementById('openAddDomainBtn')?.addEventListener('click', () => openModal('addDomainModal'));
 
-  // Add Domain Form
+  // Add Domain & SSL Tracker Form
   document.getElementById('addDomainForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const domain = document.getElementById('domainNameInput')?.value.trim();
     const port = parseInt(document.getElementById('domainPortInput')?.value) || 443;
+    const registrar = document.getElementById('domainRegistrarInput')?.value.trim() || undefined;
+    const domain_expires_at = document.getElementById('domainExpiryInput')?.value || undefined;
     const submitBtn = document.getElementById('addDomainSubmitBtn');
 
     if (!domain) return;
     if (submitBtn) {
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Probing SSL Certificate...';
+      submitBtn.textContent = 'Probing SSL & ICANN RDAP...';
     }
 
     try {
       const res = await apiFetch('/api/domains', {
         method: 'POST',
-        body: JSON.stringify({ domain, port })
+        body: JSON.stringify({ domain, port, registrar, domain_expires_at })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -225,7 +227,46 @@ function setupEventListeners() {
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Probe & Track Certificate';
+        submitBtn.textContent = 'Probe & Track Domain';
+      }
+    }
+  });
+
+  // Edit Domain Governance Form
+  document.getElementById('editDomainForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const domainId = document.getElementById('editDomainIdInput')?.value;
+    const port = parseInt(document.getElementById('editDomainPortInput')?.value) || 443;
+    const registrar = document.getElementById('editDomainRegistrarInput')?.value.trim();
+    const domain_expires_at = document.getElementById('editDomainExpiryInput')?.value || '';
+    const submitBtn = document.getElementById('editDomainSubmitBtn');
+
+    if (!domainId) return;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving...';
+    }
+
+    try {
+      const res = await apiFetch(`/api/domains/${domainId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ port, registrar, domain_expires_at })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message || 'Domain governance updated!', 'success');
+        closeModal('editDomainModal');
+        fetchDomains();
+        fetchOverview();
+      } else {
+        showToast(data.detail || 'Could not update domain.', 'error');
+      }
+    } catch (err) {
+      showToast('Network error updating domain governance.', 'error');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save Governance';
       }
     }
   });
@@ -1461,7 +1502,7 @@ async function populateOverviewWidgets() {
       }
     }
 
-    // 3. SSL Radar
+    // 3. SSL & Domain Radar
     const domRes = await apiFetch('/api/domains');
     if (domRes.ok) {
       const doms = await domRes.json();
@@ -1470,14 +1511,28 @@ async function populateOverviewWidgets() {
         if (doms.length === 0) {
           radar.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No tracked domains.</div>';
         } else {
-          radar.innerHTML = doms.slice(0, 3).map(d => {
-            let daysClass = 'badge-running';
-            if (d.days_remaining < 15) daysClass = 'badge-exited';
-            else if (d.days_remaining < 45) daysClass = 'badge-snoozed';
+          radar.innerHTML = doms.slice(0, 4).map(d => {
+            let sslClass = 'badge-running';
+            if (d.days_remaining <= 0 || !d.is_valid) sslClass = 'badge-exited';
+            else if (d.days_remaining < 30) sslClass = 'badge-snoozed';
+
+            let domBadge = '';
+            if (d.domain_days_remaining > 0) {
+              const domClass = d.domain_days_remaining < 60 ? 'color: var(--color-warning);' : 'color: var(--accent-cyan);';
+              domBadge = `<span style="font-size: 11px; ${domClass} font-family: 'JetBrains Mono', monospace;">Dom: ${d.domain_days_remaining}d</span>`;
+            } else if (d.domain_expires_at) {
+              domBadge = `<span style="font-size: 11px; color: var(--color-danger);">Dom: Due</span>`;
+            }
+
             return `
               <div class="overview-radar-item">
-                <span class="overview-radar-domain">${escapeHtml(d.domain)}</span>
-                <span class="badge ${daysClass}">${d.days_remaining}d left</span>
+                <div>
+                  <span class="overview-radar-domain">${escapeHtml(d.domain)}</span>
+                  ${domBadge ? `<div style="margin-top: 2px;">${domBadge}</div>` : ''}
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <span class="badge ${sslClass}">SSL: ${d.days_remaining > 0 ? d.days_remaining + 'd' : 'Expired'}</span>
+                </div>
               </div>
             `;
           }).join('');
@@ -2411,22 +2466,19 @@ async function fetchDomains() {
     const totalEl = document.getElementById('totalDomainsVal');
     const validEl = document.getElementById('validCertsVal');
     const expEl = document.getElementById('expiringSoonCertsVal');
-    const nextEl = document.getElementById('nextCertExpiryVal');
+    const domRenEl = document.getElementById('domainRenewalDueVal');
     const navBadge = document.getElementById('navDomainsCount');
 
     if (navBadge) navBadge.textContent = cachedDomains.length;
     if (totalEl) totalEl.textContent = cachedDomains.length;
 
     const validCount = cachedDomains.filter(d => d.is_valid && d.days_remaining > 0).length;
-    const expCount = cachedDomains.filter(d => d.days_remaining > 0 && d.days_remaining <= 30).length;
+    const sslExpCount = cachedDomains.filter(d => d.days_remaining > 0 && d.days_remaining <= 30).length;
+    const domDueCount = cachedDomains.filter(d => d.domain_days_remaining > 0 && d.domain_days_remaining <= 60).length;
 
     if (validEl) validEl.textContent = validCount;
-    if (expEl) expEl.textContent = expCount;
-
-    const sortedByDays = [...cachedDomains].filter(d => d.days_remaining > 0).sort((a, b) => a.days_remaining - b.days_remaining);
-    if (nextEl) {
-      nextEl.textContent = sortedByDays.length > 0 ? `${sortedByDays[0].days_remaining}d (${escapeHtml(sortedByDays[0].domain)})` : '--';
-    }
+    if (expEl) expEl.textContent = sslExpCount;
+    if (domRenEl) domRenEl.textContent = domDueCount;
 
     filterDomainsGrid();
   } catch (err) {
@@ -2440,12 +2492,21 @@ function filterDomainsGrid() {
   const filter = filterBtn ? filterBtn.dataset.filter : 'all';
 
   const filtered = cachedDomains.filter(d => {
-    const matchesQuery = d.domain.toLowerCase().includes(query) || (d.issuer || '').toLowerCase().includes(query);
+    const matchesQuery = d.domain.toLowerCase().includes(query) || 
+                         (d.issuer || '').toLowerCase().includes(query) ||
+                         (d.registrar || '').toLowerCase().includes(query);
     if (!matchesQuery) return false;
 
-    if (filter === 'valid') return d.is_valid && d.days_remaining > 30;
-    if (filter === 'expiring') return d.days_remaining > 0 && d.days_remaining <= 30;
-    if (filter === 'invalid') return !d.is_valid || d.days_remaining <= 0;
+    if (filter === 'healthy') {
+      const sslOk = d.is_valid && d.days_remaining > 30;
+      const domOk = !d.domain_days_remaining || d.domain_days_remaining > 60;
+      return sslOk && domOk;
+    }
+    if (filter === 'ssl-expiring') return d.days_remaining > 0 && d.days_remaining <= 30;
+    if (filter === 'domain-expiring') return d.domain_days_remaining > 0 && d.domain_days_remaining <= 60;
+    if (filter === 'attention') {
+      return !d.is_valid || d.days_remaining <= 30 || (d.domain_days_remaining > 0 && d.domain_days_remaining <= 60);
+    }
     return true;
   });
 
@@ -2459,53 +2520,107 @@ function renderDomainsGrid(domains) {
   if (domains.length === 0) {
     container.innerHTML = `
       <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
-        No SSL domains matching filter. Click "+ Track Domain" to monitor certificates.
+        No SSL & domain targets matching filter. Click "+ Track Domain" to monitor certificates & registrar expiration.
       </div>
     `;
     return;
   }
 
   container.innerHTML = domains.map(d => {
-    const isHealthy = d.is_valid && d.days_remaining > 30;
-    const isExpiring = d.days_remaining > 0 && d.days_remaining <= 30;
+    // SSL Health
+    const isSslHealthy = d.is_valid && d.days_remaining > 30;
+    const isSslExpiring = d.days_remaining > 0 && d.days_remaining <= 30;
+    const sslBoxClass = isSslHealthy ? 'highlight-ssl' : (isSslExpiring ? 'warning-state' : 'danger-state');
+    const sslDaysColor = isSslHealthy ? 'var(--color-success)' : (isSslExpiring ? 'var(--color-warning)' : 'var(--color-danger)');
 
-    const cardClass = isHealthy ? 'valid' : isExpiring ? 'expiring' : 'invalid';
-    const statusTag = isHealthy
-      ? `<span class="badge badge-running">🟢 Valid TLS</span>`
-      : isExpiring
-      ? `<span class="badge badge-snoozed">🟡 Expiring Soon</span>`
-      : `<span class="badge badge-exited">🔴 Untrusted / Expired</span>`;
+    // Domain Renewal Health
+    const hasDomExp = Boolean(d.domain_expires_at);
+    const isDomHealthy = !hasDomExp || d.domain_days_remaining > 60;
+    const isDomExpiring = hasDomExp && d.domain_days_remaining > 0 && d.domain_days_remaining <= 60;
+    const isDomExpired = hasDomExp && d.domain_days_remaining <= 0;
+    const domBoxClass = isDomHealthy ? 'highlight-domain' : (isDomExpiring ? 'warning-state' : 'danger-state');
+    const domDaysColor = isDomHealthy ? 'var(--accent-cyan)' : (isDomExpiring ? 'var(--color-warning)' : 'var(--color-danger)');
 
-    const daysColor = isHealthy ? 'var(--color-success)' : isExpiring ? 'var(--color-warning)' : 'var(--color-danger)';
+    // Overall Status Tag
+    let overallTag = '<span class="badge badge-running">🟢 Active & Secured</span>';
+    let cardClass = 'valid';
+    if (!d.is_valid || d.days_remaining <= 0 || isDomExpired) {
+      overallTag = '<span class="badge badge-exited">🔴 Critical Alert</span>';
+      cardClass = 'invalid';
+    } else if (isSslExpiring || isDomExpiring) {
+      overallTag = '<span class="badge badge-snoozed">🟡 Renewal Alert</span>';
+      cardClass = 'expiring';
+    }
 
     return `
       <div class="glass-panel domain-card ${cardClass}">
+        <!-- Header -->
         <div class="domain-top-row">
           <div>
             <a href="https://${escapeHtml(d.domain)}" target="_blank" class="domain-name-link" rel="noreferrer">
               <span>🌐</span> ${escapeHtml(d.domain)}
             </a>
-            <span class="cert-issuer-badge">Issuer: ${escapeHtml(d.issuer || 'Unknown')}</span>
+            <div style="display: flex; gap: 6px; align-items: center; margin-top: 5px; flex-wrap: wrap;">
+              <span class="cert-issuer-badge">🏷️ ${escapeHtml(d.registrar || 'Registrar: Standard')}</span>
+              <span class="cert-issuer-badge">🔒 ${escapeHtml(d.issuer || 'TLS Certificate')}</span>
+            </div>
           </div>
-          ${statusTag}
+          ${overallTag}
         </div>
 
-        <div style="margin: 6px 0;">
-          <div class="cert-days-large" style="color: ${daysColor};">
-            ${d.days_remaining > 0 ? `${d.days_remaining} Days` : 'Expired'}
+        <!-- DUAL GOVERNANCE DECK: SSL & Domain Expiry Highlights -->
+        <div class="domain-dual-deck">
+          <!-- Box 1: TLS / SSL Certificate -->
+          <div class="domain-stat-box ${sslBoxClass}">
+            <div class="domain-stat-header">
+              <span class="domain-stat-icon">🔒</span>
+              <span class="domain-stat-title">SSL Certificate</span>
+            </div>
+            <div class="domain-stat-days" style="color: ${sslDaysColor};">
+              ${d.days_remaining > 0 ? `${d.days_remaining}d` : 'Expired'}
+            </div>
+            <div class="domain-stat-sub">
+              ${d.days_remaining > 0 ? `${d.days_remaining} days left` : 'Certificate Expired'}
+            </div>
+            <div class="domain-stat-date" title="SSL Certificate Expiry Date">
+              Expires: <strong>${escapeHtml(d.expires_at || 'N/A')}</strong>
+            </div>
           </div>
-          <span style="font-size: 11.5px; color: var(--text-muted);">until TLS certificate expires</span>
+
+          <!-- Box 2: ICANN Domain Registration -->
+          <div class="domain-stat-box ${domBoxClass}">
+            <div class="domain-stat-header">
+              <span class="domain-stat-icon">🌐</span>
+              <span class="domain-stat-title">Domain Renewal</span>
+            </div>
+            <div class="domain-stat-days" style="color: ${domDaysColor};">
+              ${d.domain_days_remaining > 0 ? `${d.domain_days_remaining}d` : (hasDomExp ? 'Due' : 'Active')}
+            </div>
+            <div class="domain-stat-sub">
+              ${d.domain_days_remaining > 0 ? `${d.domain_days_remaining} days left` : (hasDomExp ? 'Renewal Due' : 'Auto-renew active')}
+            </div>
+            <div class="domain-stat-date" title="Domain Registrar Expiry Date">
+              Renews: <strong>${escapeHtml(d.domain_expires_at || 'Auto-renew')}</strong>
+            </div>
+          </div>
         </div>
 
+        <!-- Metadata List -->
         <div class="cert-meta-list">
           <div class="cert-meta-item">
-            <span class="cert-meta-label">Expires On</span>
-            <span class="cert-meta-val">${escapeHtml(d.expires_at || 'N/A')}</span>
+            <span class="cert-meta-label">Port & Protocol</span>
+            <span class="cert-meta-val">:${d.port || 443} • TLS 1.3 / HTTPS</span>
           </div>
           <div class="cert-meta-item">
-            <span class="cert-meta-label">Port / Protocol</span>
-            <span class="cert-meta-val">:${d.port || 443} • TLS 1.3</span>
+            <span class="cert-meta-label">Registrar Entity</span>
+            <span class="cert-meta-val">${escapeHtml(d.registrar || 'Auto-Discovered')}</span>
           </div>
+          ${d.registration_date ? `
+            <div class="cert-meta-item">
+              <span class="cert-meta-label">Domain Registered</span>
+              <span class="cert-meta-val">${escapeHtml(d.registration_date)}</span>
+            </div>
+          ` : ''}
           <div class="cert-meta-item">
             <span class="cert-meta-label">Last Handshake</span>
             <span class="cert-meta-val">${escapeHtml(d.last_checked_at || 'Just now')}</span>
@@ -2518,9 +2633,13 @@ function renderDomainsGrid(domains) {
           ` : ''}
         </div>
 
+        <!-- Actions -->
         <div class="domain-actions-row">
-          <button class="btn btn-secondary btn-sm" onclick="recheckDomain(${d.id})" id="recheckBtn-${d.id}" title="Recheck TLS Certificate">
-            🔄 Check Now
+          <button class="btn btn-secondary btn-sm" onclick="recheckDomain(${d.id})" id="recheckBtn-${d.id}" title="Recheck TLS & ICANN RDAP">
+            🔄 Recheck Both
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="openEditDomainModal(${d.id})" title="Edit Domain Registrar & Expiry Date">
+            ✏️ Edit Expiry
           </button>
           <button class="btn btn-secondary btn-sm" onclick="deleteDomain(${d.id}, '${escapeHtml(d.domain)}')" style="color: var(--color-danger);" title="Delete Tracker">
             🗑 Delete
@@ -2530,6 +2649,25 @@ function renderDomainsGrid(domains) {
     `;
   }).join('');
 }
+
+window.openEditDomainModal = function(domainId) {
+  const d = (cachedDomains || []).find(item => item.id === domainId);
+  if (!d) return;
+
+  const idInput = document.getElementById('editDomainIdInput');
+  const nameInput = document.getElementById('editDomainNameInput');
+  const portInput = document.getElementById('editDomainPortInput');
+  const regInput = document.getElementById('editDomainRegistrarInput');
+  const expInput = document.getElementById('editDomainExpiryInput');
+
+  if (idInput) idInput.value = d.id;
+  if (nameInput) nameInput.value = d.domain;
+  if (portInput) portInput.value = d.port || 443;
+  if (regInput) regInput.value = d.registrar || '';
+  if (expInput) expInput.value = d.domain_expires_at || '';
+
+  openModal('editDomainModal');
+};
 
 async function recheckDomain(domainId) {
   const btn = document.getElementById(`recheckBtn-${domainId}`);
@@ -2547,11 +2685,11 @@ async function recheckDomain(domainId) {
       showToast(data.detail || 'Failed to recheck certificate.', 'error');
     }
   } catch (err) {
-    showToast('Network error during SSL handshake.', 'error');
+    showToast('Network error during SSL/RDAP check.', 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '🔄 Check Now';
+      btn.textContent = '🔄 Recheck Both';
     }
   }
 }

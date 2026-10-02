@@ -1055,13 +1055,21 @@ async def analyze_incident_rca(
 class DomainCreateRequest(BaseModel):
     domain: str = Field(min_length=3, max_length=255)
     port: int = Field(default=443, ge=1, le=65535)
+    registrar: str | None = None
+    domain_expires_at: str | None = None
+
+
+class DomainUpdateRequest(BaseModel):
+    port: int = Field(default=443, ge=1, le=65535)
+    registrar: str = ""
+    domain_expires_at: str = ""
 
 
 @router.get("/domains", tags=["Domains"])
 async def get_domains(
     session: Annotated[dict, Depends(get_current_session)],
 ) -> list[dict[str, Any]]:
-    """List all tracked domains with live SSL certificate status."""
+    """List all tracked domains with live SSL certificate and domain registration governance."""
     return await domains_db.list_domains()
 
 
@@ -1070,8 +1078,13 @@ async def create_domain(
     req: DomainCreateRequest,
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    """Register and immediately probe the SSL certificate for any domain."""
-    domain_record = await domains_db.add_domain(req.domain, port=req.port)
+    """Register and immediately probe the SSL certificate and ICANN RDAP for any domain."""
+    domain_record = await domains_db.add_domain(
+        req.domain,
+        port=req.port,
+        registrar=req.registrar,
+        domain_expires_at=req.domain_expires_at,
+    )
     audit_logger.record_action(
         user_id="web-admin",
         action="add_ssl_domain",
@@ -1081,16 +1094,40 @@ async def create_domain(
     return {"success": True, "message": f"Domain '{req.domain}' is now tracked.", "domain": domain_record}
 
 
+@router.put("/domains/{domain_id}", dependencies=[Depends(verify_csrf)], tags=["Domains"])
+async def update_domain_endpoint(
+    domain_id: int,
+    req: DomainUpdateRequest,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Update domain governance details (registrar, port, domain renewal date)."""
+    res = await domains_db.update_domain_governance(
+        domain_id,
+        port=req.port,
+        registrar=req.registrar,
+        domain_expires_at=req.domain_expires_at,
+    )
+    if not res:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="update_domain_governance",
+        target=res["domain"],
+        status="SUCCESS",
+    )
+    return {"success": True, "message": f"Updated governance for {res['domain']}.", "domain": res}
+
+
 @router.post("/domains/{domain_id}/check", dependencies=[Depends(verify_csrf)], tags=["Domains"])
 async def recheck_domain_endpoint(
     domain_id: int,
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    """Execute an immediate live SSL handshake and certificate validation."""
+    """Execute an immediate live SSL handshake and ICANN RDAP domain registration recheck."""
     res = await domains_db.recheck_domain(domain_id)
     if not res:
         raise HTTPException(status_code=404, detail="Domain not found")
-    return {"success": True, "message": f"SSL certificate rechecked for {res['domain']}.", "domain": res}
+    return {"success": True, "message": f"SSL & domain governance rechecked for {res['domain']}.", "domain": res}
 
 
 @router.delete("/domains/{domain_id}", dependencies=[Depends(verify_csrf)], tags=["Domains"])

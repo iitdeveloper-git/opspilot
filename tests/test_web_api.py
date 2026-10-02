@@ -274,6 +274,20 @@ def test_domains_api_crud_and_check(auth_client, monkeypatch):
     assert check_res.status_code == 200
     assert check_res.json()["domain"]["domain"] == "api.testdomain.com"
 
+    # 3b. Update domain governance (registrar & expiration date)
+    update_res = auth_client.put(
+        f"/api/domains/{domain_id}",
+        json={
+            "port": 8443,
+            "registrar": "Namecheap Inc.",
+            "domain_expires_at": "2027-08-15",
+        },
+    )
+    assert update_res.status_code == 200
+    updated_domain = update_res.json()["domain"]
+    assert updated_domain["registrar"] == "Namecheap Inc."
+    assert updated_domain["domain_expires_at"] == "2027-08-15"
+
     # 4. Overview includes domains_total count
     overview_res = auth_client.get("/api/overview")
     assert overview_res.status_code == 200

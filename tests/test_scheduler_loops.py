@@ -169,6 +169,54 @@ async def test_renewal_loop_runs_only_once_per_day():
     mock_get.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_domain_governance_loop_runs_only_once_per_day():
+    """Domain governance check must only run once per UTC day."""
+    channel = _CaptureChannel()
+    scheduler = _make_scheduler(channel)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    scheduler._last_domain_check_date = today
+
+    mock_list = AsyncMock(return_value=[])
+    with patch("opspilot.automation.scheduler.domains_db.list_domains", new=mock_list):
+        await scheduler._run_domain_governance_loop_if_due()
+
+    mock_list.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_domain_governance_loop_sends_ssl_and_domain_alerts():
+    """Expiring SSL (<30d) and expiring domain (<60d) must dispatch notifications."""
+    channel = _CaptureChannel()
+    scheduler = _make_scheduler(channel)
+
+    fake_domain = {
+        "id": 1,
+        "domain": "iitdeveloper.com",
+        "port": 443,
+        "is_valid": True,
+        "days_remaining": 12,  # expiring SSL
+        "expires_at": "2026-10-15",
+        "registrar": "GoDaddy",
+        "domain_days_remaining": 25,  # expiring domain
+        "domain_expires_at": "2026-10-28",
+    }
+
+    with (
+        patch("opspilot.automation.scheduler.domains_db.seed_domains", new=AsyncMock(return_value=0)),
+        patch("opspilot.automation.scheduler.domains_db.list_domains", new=AsyncMock(return_value=[fake_domain])),
+        patch("opspilot.automation.scheduler.domains_db.recheck_domain", new=AsyncMock(return_value=fake_domain)),
+        patch("opspilot.automation.scheduler.inc_db.open_incident", new=AsyncMock(return_value=(1, True, False))),
+        patch("opspilot.automation.scheduler.inc_db.resolve_incident", new=AsyncMock(return_value=None)),
+    ):
+        await scheduler._run_domain_governance_loop()
+
+    # Both SSL and Domain expiration alerts should be dispatched
+    messages = [m for m, _ in channel.messages]
+    assert any("SSL Certificate Expiring" in m for m in messages)
+    assert any("Domain Registration Expiring" in m for m in messages)
+
+
 # ─── Health loop — disk alert ─────────────────────────────────────────────────
 
 

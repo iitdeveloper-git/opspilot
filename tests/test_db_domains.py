@@ -3,12 +3,14 @@
 import pytest
 
 from opspilot.db.domains import (
+    _calc_domain_days,
     add_domain,
     delete_domain,
     get_domain,
     list_domains,
     recheck_domain,
     seed_domains,
+    update_domain_governance,
 )
 from opspilot.db.engine import init_db, set_db_path
 from opspilot.monitor.ssl import SSLStatus
@@ -89,3 +91,56 @@ async def test_seed_domains(monkeypatch):
     assert count == 2
     all_doms = await list_domains()
     assert len(all_doms) == 2
+
+
+@pytest.mark.asyncio
+async def test_domain_governance_rdap_and_manual_update(monkeypatch):
+    from opspilot.db import domains
+
+    def mock_ssl(domain: str, port: int = 443, timeout: int = 5):
+        return SSLStatus(
+            domain=domain,
+            is_valid=True,
+            days_remaining=85,
+            expires_at="2026-11-01",
+            issuer="Google Trust Services",
+            error=None,
+        )
+
+    def mock_rdap(domain: str, timeout: int = 5):
+        return {
+            "domain": domain,
+            "registrar": "GoDaddy.com, LLC",
+            "domain_expires_at": "2027-02-15",
+            "domain_days_remaining": 365,
+            "registration_date": "2020-02-15",
+        }
+
+    monkeypatch.setattr(domains, "check_domain_ssl", mock_ssl)
+    monkeypatch.setattr(domains, "check_domain_rdap", mock_rdap)
+
+    # 1. Add domain with RDAP discovery
+    record = await add_domain("iitdeveloper.com")
+    assert record["domain"] == "iitdeveloper.com"
+    assert record["registrar"] == "GoDaddy.com, LLC"
+    assert record["domain_expires_at"] == "2027-02-15"
+    assert record["days_remaining"] > 0
+    assert record["domain_days_remaining"] > 0
+
+    # 2. Update governance manually
+    updated = await update_domain_governance(
+        domain_id=record["id"],
+        port=8443,
+        registrar="Cloudflare Registrar",
+        domain_expires_at="2028-05-20",
+    )
+    assert updated is not None
+    assert updated["port"] == 8443
+    assert updated["registrar"] == "Cloudflare Registrar"
+    assert updated["domain_expires_at"] == "2028-05-20"
+
+    # 3. Test _calc_domain_days
+    assert _calc_domain_days("") == 0
+    assert _calc_domain_days("invalid-date") == 0
+    assert _calc_domain_days("2099-01-01") > 1000
+

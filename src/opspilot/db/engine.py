@@ -104,16 +104,20 @@ async def init_db() -> None:
                 updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
             );
             CREATE TABLE IF NOT EXISTS ssl_domains (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                domain          TEXT    NOT NULL UNIQUE,
-                port            INTEGER NOT NULL DEFAULT 443,
-                issuer          TEXT    NOT NULL DEFAULT '',
-                expires_at      TEXT    NOT NULL DEFAULT '',
-                days_remaining  INTEGER NOT NULL DEFAULT 0,
-                is_valid        INTEGER NOT NULL DEFAULT 1,
-                last_checked_at TEXT    NOT NULL DEFAULT (datetime('now')),
-                error           TEXT    NOT NULL DEFAULT '',
-                created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain                TEXT    NOT NULL UNIQUE,
+                port                  INTEGER NOT NULL DEFAULT 443,
+                issuer                TEXT    NOT NULL DEFAULT '',
+                expires_at            TEXT    NOT NULL DEFAULT '',
+                days_remaining        INTEGER NOT NULL DEFAULT 0,
+                is_valid              INTEGER NOT NULL DEFAULT 1,
+                last_checked_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+                error                 TEXT    NOT NULL DEFAULT '',
+                registrar             TEXT    NOT NULL DEFAULT '',
+                domain_expires_at     TEXT    NOT NULL DEFAULT '',
+                domain_days_remaining INTEGER NOT NULL DEFAULT 0,
+                registration_date     TEXT    NOT NULL DEFAULT '',
+                created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
             );
         """)
         # Migration: add snoozed_until to renewals if upgrading from v0.2
@@ -123,4 +127,18 @@ async def init_db() -> None:
             logger.info("Migration: added snoozed_until to renewals table.")
         except Exception:
             pass  # Column already exists — normal on fresh installs
+
+        # Migration: add domain governance columns to ssl_domains
+        for col_def in [
+            ("registrar", "TEXT NOT NULL DEFAULT ''"),
+            ("domain_expires_at", "TEXT NOT NULL DEFAULT ''"),
+            ("domain_days_remaining", "INTEGER NOT NULL DEFAULT 0"),
+            ("registration_date", "TEXT NOT NULL DEFAULT ''"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE ssl_domains ADD COLUMN {col_def[0]} {col_def[1]}")
+                await db.commit()
+                logger.info(f"Migration: added {col_def[0]} to ssl_domains table.")
+            except Exception:
+                pass
     logger.info("OpsPilot DB ready.")
