@@ -7,7 +7,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from opspilot.ai.copilot import OpsCopilot
@@ -329,6 +329,7 @@ class RenewalUpdateRequest(BaseModel):
     notes: str = Field(default="", max_length=500)
     recurrence: str = Field(default="none", max_length=20)
     remind_days_before: int = Field(default=7, ge=1, le=90)
+    paid_by: str = Field(default="", max_length=100)
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -344,10 +345,67 @@ class RenewalCreateRequest(BaseModel):
     notes: str = Field(default="")
     recurrence: str = Field(default="none")
     remind_days_before: int = Field(default=7, ge=1, le=90)
+    paid_by: str = Field(default="")
 
 
 class RenewalSnoozeRequest(BaseModel):
     days: int = Field(default=7, ge=1, le=60)
+
+
+class RenewalMarkPaidRequest(BaseModel):
+    paid_by: str = Field(default="", max_length=100)
+    paid_at: str | None = Field(default=None, description="Optional ISO 8601 datetime of payment")
+
+
+@router.get("/renewals/kpis")
+async def get_billing_kpis_endpoint(
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Get financial billing KPIs: monthly burn rate, due next 7 days, overdue, paid this month (all INR)."""
+    return await ren_db.get_billing_kpis()
+
+
+@router.get("/renewals/export")
+async def export_renewals_csv(
+    session: Annotated[dict, Depends(get_current_session)],
+) -> Response:
+    """Export all non-cancelled renewals as a CSV file for accounting."""
+    import csv
+    import io
+    from datetime import datetime as _dt
+
+    renewals = await ren_db.list_renewals()
+    active = [r for r in renewals if r.get("status") != "cancelled"]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "#", "Name", "Category", "Amount (INR)", "Recurrence", "Due Date",
+        "Status", "Paid By", "Paid At", "Notes", "Source", "Created At",
+    ])
+    for i, r in enumerate(active, 1):
+        writer.writerow([
+            i,
+            r.get("name", ""),
+            r.get("category", ""),
+            r.get("amount", ""),
+            r.get("recurrence", ""),
+            r.get("due_date", ""),
+            r.get("status", ""),
+            r.get("paid_by", ""),
+            r.get("paid_at", ""),
+            r.get("notes", ""),
+            r.get("source", ""),
+            r.get("created_at", ""),
+        ])
+
+    month_str = _dt.now().strftime("%Y-%m")
+    csv_bytes = output.getvalue().encode("utf-8")
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="opspilot-expenses-{month_str}.csv"'},
+    )
 
 
 @router.get("/renewals")
@@ -383,13 +441,14 @@ async def create_renewal(
         notes=req.notes,
         recurrence=req.recurrence,
         remind_days_before=req.remind_days_before,
+        paid_by=req.paid_by.strip(),
     )
     audit_logger.record_action(
         user_id="web-admin",
         action="add_renewal",
         target=req.name,
         status="SUCCESS",
-        details={"due_date": req.due_date, "amount": req.amount},
+        details={"due_date": req.due_date, "amount": req.amount, "paid_by": req.paid_by},
     )
     return {"success": True, "id": new_id, "message": f"Renewal '{req.name}' registered."}
 
@@ -397,16 +456,21 @@ async def create_renewal(
 @router.post("/renewals/{renewal_id}/pay", dependencies=[Depends(verify_csrf)])
 async def pay_renewal(
     renewal_id: int,
+    req: RenewalMarkPaidRequest,
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    """Mark renewal as paid and advance recurring due date if applicable."""
-    next_r = await ren_db.mark_paid(renewal_id)
+    """Mark renewal as paid. Optionally record who paid and when. Advances recurring due date."""
+    next_r = await ren_db.mark_paid(
+        renewal_id,
+        paid_by=req.paid_by.strip() if req.paid_by else None,
+        paid_at=req.paid_at,
+    )
     audit_logger.record_action(
         user_id="web-admin",
         action="mark_paid",
         target=str(renewal_id),
         status="SUCCESS",
-        details={"has_next": bool(next_r)},
+        details={"has_next": bool(next_r), "paid_by": req.paid_by},
     )
     return {
         "success": True,
@@ -517,12 +581,14 @@ async def update_renewal_endpoint(
         notes=req.notes.strip(),
         recurrence=req.recurrence.strip(),
         remind_days_before=req.remind_days_before,
+        paid_by=req.paid_by.strip() if req.paid_by is not None else None,
     )
     audit_logger.record_action(
         user_id="web-admin",
         action="update_renewal",
         target=f"#{renewal_id} {req.name}",
         status="SUCCESS",
+        details={"paid_by": req.paid_by},
     )
     return {"success": True, "message": f"Renewal #{renewal_id} updated."}
 

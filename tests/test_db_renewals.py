@@ -14,6 +14,7 @@ from opspilot.db.renewals import (
     mark_reminded,
     seed_renewals_from_yaml,
     snooze_renewal,
+    update_renewal,
 )
 
 
@@ -119,3 +120,48 @@ async def test_mark_reminded_suppresses_same_day():
     await mark_reminded(rid)
     due_again = await get_due_renewals()
     assert not any(r["id"] == rid for r in due_again), "Already reminded today"
+
+
+# ─── paid_by & Billing KPIs ───────────────────────────────────────────────────
+
+
+async def test_paid_by_persistence_and_update():
+    rid = await add_renewal("OVH VPS", "vps", "2026-10-15", amount=4000.0, paid_by="Ravi")
+    ren = await get_renewal(rid)
+    assert ren is not None
+    assert ren["paid_by"] == "Ravi"
+
+    await update_renewal(rid, "OVH VPS", "vps", "2026-10-15", amount=4200.0, paid_by="Company")
+    ren_updated = await get_renewal(rid)
+    assert ren_updated is not None
+    assert ren_updated["paid_by"] == "Company"
+    assert ren_updated["amount"] == 4200.0
+
+
+async def test_mark_paid_with_payer_and_recurrence_copy():
+    rid = await add_renewal("OpenAI API", "saas", "2026-10-15", amount=1200.0, recurrence="monthly", paid_by="Ravi")
+    next_r = await mark_paid(rid, paid_by="Company Account")
+    assert next_r is not None
+    assert next_r["paid_by"] == "Company Account"
+
+    paid_r = await get_renewal(rid)
+    assert paid_r is not None
+    assert paid_r["status"] == "paid"
+    assert paid_r["paid_by"] == "Company Account"
+    assert paid_r["paid_at"] is not None
+
+
+async def test_get_billing_kpis():
+    from opspilot.db.renewals import get_billing_kpis
+
+    await add_renewal("Monthly VPS", "vps", "2026-10-15", amount=3000.0, recurrence="monthly", paid_by="Ravi")
+    await add_renewal("Yearly Domain", "domain", "2026-12-01", amount=1200.0, recurrence="yearly", paid_by="Company")
+    kpis = await get_billing_kpis()
+    assert kpis["currency"] == "INR"
+    # Monthly burn: 3000 + (1200 / 12) = 3100
+    assert kpis["total_monthly_burn"] == 3100.0
+    assert "Ravi" in kpis["by_payer"]
+    assert "Company" in kpis["by_payer"]
+    assert kpis["by_payer"]["Ravi"]["total_amount"] == 3000.0
+    assert kpis["by_payer"]["Company"]["total_amount"] == 1200.0
+

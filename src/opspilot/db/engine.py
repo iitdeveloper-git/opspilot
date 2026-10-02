@@ -56,6 +56,7 @@ async def init_db() -> None:
                 last_reminded_at    TEXT,
                 snoozed_until       TEXT,
                 paid_at             TEXT,
+                paid_by             TEXT    NOT NULL DEFAULT '',
                 source              TEXT    NOT NULL DEFAULT 'manual',
                 created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
                 updated_at          TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -127,6 +128,14 @@ async def init_db() -> None:
             logger.info("Migration: added snoozed_until to renewals table.")
         except Exception:
             pass  # Column already exists — normal on fresh installs
+
+        # Migration: add paid_by to renewals
+        try:
+            await db.execute("ALTER TABLE renewals ADD COLUMN paid_by TEXT NOT NULL DEFAULT ''")
+            await db.commit()
+            logger.info("Migration: added paid_by to renewals table.")
+        except Exception:
+            pass
 
         # Migration: add domain governance columns to ssl_domains
         for col_def in [

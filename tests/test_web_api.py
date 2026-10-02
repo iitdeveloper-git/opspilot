@@ -123,7 +123,7 @@ def test_renewals_crud_lifecycle(auth_client):
     assert snooze_res.status_code == 200
 
     # 4. Mark paid (advances yearly recurring date)
-    pay_res = auth_client.post(f"/api/renewals/{ren_id}/pay")
+    pay_res = auth_client.post(f"/api/renewals/{ren_id}/pay", json={"paid_by": "Ravi"})
     assert pay_res.status_code == 200
     data = pay_res.json()
     assert data["next_renewal"] is not None

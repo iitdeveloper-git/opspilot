@@ -418,6 +418,7 @@ function setupEventListeners() {
       currency: 'INR',
       recurrence: document.getElementById('renewalRecurrenceInput').value,
       notes: document.getElementById('renewalNotesInput').value,
+      paid_by: (document.getElementById('renewalPaidByInput').value || '').trim(),
       remind_days_before: 7
     };
     try {
@@ -455,6 +456,7 @@ function setupEventListeners() {
       currency: 'INR',
       recurrence: document.getElementById('editRenewalRecurrenceInput').value,
       notes: document.getElementById('editRenewalNotesInput').value.trim(),
+      paid_by: (document.getElementById('editRenewalPaidByInput').value || '').trim(),
       remind_days_before: 7
     };
     try {
@@ -473,6 +475,16 @@ function setupEventListeners() {
     } catch (err) {
       showToast('Network error updating renewal.', 'error');
     }
+  });
+
+  // Mark as Paid modal form
+  document.getElementById('markPaidForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const renewalId = parseInt(document.getElementById('markPaidRenewalId').value, 10);
+    const paidBy = (document.getElementById('markPaidByInput').value || '').trim();
+    const paidAt = document.getElementById('markPaidDateInput').value || null;
+    closeModal('markPaidModal');
+    await _submitMarkPaid(renewalId, paidBy, paidAt);
   });
 
   // Settings Form
@@ -1315,7 +1327,7 @@ function switchTab(tabId) {
   else if (targetTab === 'fleet') fetchFleet();
   else if (targetTab === 'probes') fetchProbes();
   else if (targetTab === 'domains') fetchDomains();
-  else if (targetTab === 'renewals') fetchRenewals();
+  else if (targetTab === 'renewals') { fetchRenewals(); fetchBillingKPIs(); }
   else if (targetTab === 'incidents') fetchIncidents();
   else if (targetTab === 'settings') {
     fetchSettings();
@@ -2176,39 +2188,9 @@ async function fetchRenewals() {
     cachedRenewals = await res.json();
     window.renewalsCache = cachedRenewals;
     document.getElementById('navRenewalsCount').textContent = cachedRenewals.filter(r => r.status === 'pending').length;
-
-    // Calculate Financial KPIs
-    const active = cachedRenewals.filter(r => r.status === 'pending');
-    let monthlyRunRate = 0;
-    let dueSoonCount = 0;
-    const now = new Date();
-
-    active.forEach(r => {
-      const amt = Number(r.amount || 0);
-      const rec = (r.recurrence || 'monthly').toLowerCase();
-      if (rec === 'monthly') monthlyRunRate += amt;
-      else if (rec === 'yearly' || rec === 'annual') monthlyRunRate += (amt / 12);
-      else if (rec === 'quarterly') monthlyRunRate += (amt / 3);
-
-      const dueDate = new Date(r.due_date);
-      const diffDays = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-      if (diffDays >= 0 && diffDays <= 30) dueSoonCount++;
-    });
-
-    const annualProjected = Math.round(monthlyRunRate * 12);
-
-    const kpiActive = document.getElementById('renKpiActive');
-    const kpiMonthly = document.getElementById('renKpiMonthly');
-    const kpiUpcoming = document.getElementById('renKpiUpcoming');
-    const kpiAnnual = document.getElementById('renKpiAnnual');
-
-    if (kpiActive) kpiActive.textContent = `${active.length} Active`;
-    if (kpiMonthly) kpiMonthly.textContent = `₹${Math.round(monthlyRunRate).toLocaleString('en-IN')} / mo`;
-    if (kpiUpcoming) kpiUpcoming.textContent = `${dueSoonCount} Due Soon`;
-    if (kpiAnnual) kpiAnnual.textContent = `₹${annualProjected.toLocaleString('en-IN')} / yr`;
-
     filterRenewalsGrid();
     renderRenewalsTimeline(cachedRenewals);
+    fetchBillingKPIs();
   } catch (err) {
     console.error('Error fetching renewals:', err);
   }
@@ -2280,7 +2262,7 @@ function filterRenewalsGrid() {
               <th>Subscription / Service</th>
               <th>Category</th>
               <th>Cost / Billing</th>
-              <th>Notes & Context</th>
+              <th>Paid By</th>
               <th style="text-align: right;">Quick Actions</th>
             </tr>
           </thead>
@@ -2336,8 +2318,11 @@ function filterRenewalsGrid() {
                       / ${escapeHtml(r.recurrence || 'monthly')}
                     </span>
                   </td>
-                  <td style="color: var(--text-secondary); font-size: 12px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    ${escapeHtml(r.notes || '—')}
+                  <td style="color: var(--text-secondary); font-size: 12px;">
+                    ${r.paid_by
+                      ? `<span style="background:rgba(34,197,94,0.12);color:var(--color-success);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">&#129534; ${escapeHtml(r.paid_by)}</span>`
+                      : '<span style="color:var(--text-muted);font-size:11px;">— Unassigned</span>'
+                    }
                   </td>
                   <td class="dense-actions-cell">
                     ${!isPaid ? `
@@ -2387,8 +2372,9 @@ function filterRenewalsGrid() {
     if (cat.includes('domain')) categoryIcon = '🌐';
     else if (cat.includes('ssl')) categoryIcon = '🔒';
     else if (cat.includes('saas') || cat.includes('client')) categoryIcon = '⚡';
+    else if (cat.includes('license')) categoryIcon = '🪪';
 
-    const currencySymbol = r.currency === 'USD' ? '$' : (r.currency === 'EUR' ? '€' : '₹');
+    const currencySymbol = '\u20b9';  // Always INR for now
 
     return `
       <div class="entity-row-card ${rowClass}" style="${isPaid ? 'opacity: 0.65;' : ''}">
@@ -2428,8 +2414,8 @@ function filterRenewalsGrid() {
         <div class="entity-row-footer">
           <div class="entity-meta-list">
             <span>💳 Renewal ID: #${r.id}</span>
-            <span>🌐 Currency: ${escapeHtml(r.currency || 'INR')}</span>
-            <span>🛡️ SRE Auto-Notification: 14d & 3d prior</span>
+            <span>🧾 Paid By: ${escapeHtml(r.paid_by || '—')}</span>
+            <span>🛡️ SRE Auto-Notification: 14d &amp; 3d prior</span>
           </div>
           <div class="entity-actions-group">
             ${!isPaid ? `
@@ -2469,18 +2455,56 @@ function renderRenewalsTimeline(renewals) {
   }).join('');
 }
 
-async function markRenewalPaid(renewalId) {
+// Opens the "Mark as Paid" confirmation modal with renewal context
+function markRenewalPaid(renewalId) {
+  const renewal = (window.renewalsCache || []).find(r => r.id === renewalId);
+  if (!renewal) return;
+
+  document.getElementById('markPaidRenewalId').value = renewalId;
+  document.getElementById('markPaidRenewalName').textContent = renewal.name || '';
+  document.getElementById('markPaidRenewalAmount').textContent =
+    `\u20b9${Number(renewal.amount || 0).toLocaleString('en-IN')} / ${renewal.recurrence || 'monthly'}`;
+  document.getElementById('markPaidByInput').value = renewal.paid_by || '';
+  // Default date to today
+  document.getElementById('markPaidDateInput').value = new Date().toISOString().split('T')[0];
+  openModal('markPaidModal');
+}
+
+// Actual API call — triggered by markPaidForm submit
+async function _submitMarkPaid(renewalId, paidBy, paidAt) {
   try {
-    const res = await apiFetch(`/api/renewals/${renewalId}/pay`, { method: 'POST' });
+    const res = await apiFetch(`/api/renewals/${renewalId}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ paid_by: paidBy, paid_at: paidAt || null })
+    });
     const data = await res.json();
     if (res.ok && data.success) {
       showToast(data.message, 'success');
       fetchRenewals();
       fetchOverview();
+      fetchBillingKPIs();
+    } else {
+      showToast(data.detail || 'Failed to mark as paid.', 'error');
     }
   } catch (err) {
-    showToast('Failed to mark renewal as paid.', 'error');
+    showToast('Network error marking renewal as paid.', 'error');
   }
+}
+
+async function fetchBillingKPIs() {
+  try {
+    const res = await apiFetch('/api/renewals/kpis');
+    if (!res.ok) return;
+    const kpis = await res.json();
+    const fmt = (n) => '\u20b9' + Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+    const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setEl('kpi-monthly-burn', fmt(kpis.total_monthly_burn));
+    setEl('kpi-due-7days', fmt(kpis.due_next_7_days?.amount));
+    setEl('kpi-overdue', fmt(kpis.overdue?.amount));
+    setEl('kpi-paid-month', fmt(kpis.paid_this_month?.amount));
+    setEl('kpi-total-active', kpis.active_subscriptions_count ?? '--');
+    setEl('kpi-overdue-count', kpis.overdue?.count ?? '--');
+  } catch (_) {}
 }
 
 async function snoozeRenewal(renewalId) {
@@ -2958,6 +2982,7 @@ function openEditRenewalModal(renewalId) {
   document.getElementById('editRenewalAmountInput').value = renewal.amount != null ? renewal.amount : '';
   document.getElementById('editRenewalRecurrenceInput').value = renewal.recurrence || 'none';
   document.getElementById('editRenewalNotesInput').value = renewal.notes || '';
+  document.getElementById('editRenewalPaidByInput').value = renewal.paid_by || '';
   openModal('editRenewalModal');
 }
 
