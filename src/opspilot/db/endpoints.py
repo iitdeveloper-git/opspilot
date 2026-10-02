@@ -74,3 +74,11 @@ async def toggle_endpoint(endpoint_id: int, enabled: bool) -> bool:
         )
         await db.commit()
         return True
+
+
+async def delete_endpoint(endpoint_id: int) -> bool:
+    """Permanently delete an endpoint from the database."""
+    async with db_conn() as db:
+        cursor = await db.execute("DELETE FROM endpoints WHERE id = ?", (endpoint_id,))
+        await db.commit()
+        return cursor.rowcount > 0

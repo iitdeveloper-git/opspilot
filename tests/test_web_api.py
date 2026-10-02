@@ -133,12 +133,21 @@ def test_renewals_crud_lifecycle(auth_client):
     del_res = auth_client.delete(f"/api/renewals/{ren_id}")
     assert del_res.status_code == 200
 
+    # 6. Verify excluded from default active list
+    list_active = auth_client.get("/api/renewals")
+    assert list_active.status_code == 200
+    assert not any(r["id"] == ren_id for r in list_active.json())
+
 
 def test_incidents_endpoint(auth_client):
-    """GET /api/incidents returns incident list."""
+    """GET and DELETE /api/incidents."""
     res = auth_client.get("/api/incidents")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
+
+    # Test delete 404 on nonexistent incident
+    del_404 = auth_client.delete("/api/incidents/999999")
+    assert del_404.status_code == 404
 
 
 def test_renewal_edit_endpoint(auth_client):

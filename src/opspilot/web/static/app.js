@@ -1778,15 +1778,19 @@ async function toggleProbe(probeId, newEnabledState) {
 }
 
 async function deleteProbe(probeId) {
-  if (!confirm('Remove this service health check?')) return;
+  if (!confirm('Permanently remove this service health check?')) return;
   try {
     const res = await apiFetch(`/api/probes/${probeId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      showToast('Service health check removed.', 'success');
+      showToast(data.message || 'Service health check removed.', 'success');
       fetchProbes();
+      fetchOverview();
+    } else {
+      showToast(data.detail || 'Failed to delete service check.', 'error');
     }
   } catch (err) {
-    showToast('Failed to delete service check.', 'error');
+    showToast('Network error deleting service check.', 'error');
   }
 }
 
@@ -1845,6 +1849,7 @@ function filterRenewalsGrid() {
   const filter = filterBtn ? filterBtn.dataset.filter : 'all';
 
   const filtered = cachedRenewals.filter(r => {
+    if (r.status === 'cancelled') return false;
     const matchesQuery = (r.name || '').toLowerCase().includes(query) || (r.category || '').toLowerCase().includes(query) || (r.notes || '').toLowerCase().includes(query);
     if (!matchesQuery) return false;
     if (filter === 'vps') return (r.category || '').toLowerCase().includes('vps');
@@ -1916,7 +1921,7 @@ function filterRenewalsGrid() {
             <button class="btn btn-secondary btn-sm" onclick="snoozeRenewal(${r.id})">⏰ Snooze</button>
             <button class="btn btn-secondary btn-sm" onclick="openEditRenewalModal(${r.id})">✏️ Edit</button>
           ` : ''}
-          <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})">🗑</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteRenewal(${r.id})" title="Cancel and Delete Renewal">🗑</button>
         </div>
       </div>
     `;
@@ -1927,12 +1932,13 @@ function renderRenewalsTimeline(renewals) {
   const container = document.getElementById('renewalsTimelineContainer');
   if (!container) return;
 
-  if (!renewals || renewals.length === 0) {
+  const activeRenewals = (renewals || []).filter(r => r.status !== 'cancelled');
+  if (activeRenewals.length === 0) {
     container.innerHTML = '<div style="color: var(--text-muted); font-size: 12.5px;">No upcoming payments scheduled.</div>';
     return;
   }
 
-  container.innerHTML = renewals.slice(0, 5).map(r => {
+  container.innerHTML = activeRenewals.slice(0, 5).map(r => {
     const cur = r.currency === 'USD' ? '$' : (r.currency === 'EUR' ? '€' : '₹');
     return `
       <div class="timeline-item">
@@ -1953,6 +1959,7 @@ async function markRenewalPaid(renewalId) {
     if (res.ok && data.success) {
       showToast(data.message, 'success');
       fetchRenewals();
+      fetchOverview();
     }
   } catch (err) {
     showToast('Failed to mark renewal as paid.', 'error');
@@ -1968,6 +1975,7 @@ async function snoozeRenewal(renewalId) {
     if (res.ok) {
       showToast('Renewal snoozed for 7 days.', 'success');
       fetchRenewals();
+      fetchOverview();
     }
   } catch (err) {
     showToast('Failed to snooze renewal.', 'error');
@@ -1975,15 +1983,19 @@ async function snoozeRenewal(renewalId) {
 }
 
 async function deleteRenewal(renewalId) {
-  if (!confirm('Cancel / delete this renewal?')) return;
+  if (!confirm('Permanently cancel / delete this renewal?')) return;
   try {
     const res = await apiFetch(`/api/renewals/${renewalId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      showToast('Renewal deleted.', 'success');
+      showToast(data.message || 'Renewal deleted.', 'success');
       fetchRenewals();
+      fetchOverview();
+    } else {
+      showToast(data.detail || 'Failed to delete renewal.', 'error');
     }
   } catch (err) {
-    showToast('Failed to delete renewal.', 'error');
+    showToast('Network error deleting renewal.', 'error');
   }
 }
 
@@ -2192,6 +2204,9 @@ function renderIncidentsFeed() {
                 </button>
               ` 
               : '<span class="resolved-audit-badge">🛡️ Verified by OpsPilot Engine</span>'}
+            <button class="btn btn-secondary btn-sm" onclick="deleteIncident(${inc.id})" style="color: var(--color-danger); padding: 6px 10px;" title="Permanently delete incident record">
+              🗑
+            </button>
           </div>
         </div>
       </div>
@@ -2202,13 +2217,33 @@ function renderIncidentsFeed() {
 async function resolveIncident(incId) {
   try {
     const res = await apiFetch(`/api/incidents/${incId}/resolve`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      showToast('Incident marked resolved.', 'success');
+      showToast(data.message || 'Incident marked resolved.', 'success');
       fetchIncidents();
       fetchOverview();
+    } else {
+      showToast(data.detail || 'Failed to resolve incident.', 'error');
     }
   } catch (err) {
     showToast('Failed to resolve incident.', 'error');
+  }
+}
+
+async function deleteIncident(incId) {
+  if (!confirm('Permanently remove this incident from the audit ledger?')) return;
+  try {
+    const res = await apiFetch(`/api/incidents/${incId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast(data.message || 'Incident deleted.', 'success');
+      fetchIncidents();
+      fetchOverview();
+    } else {
+      showToast(data.detail || 'Failed to delete incident.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error deleting incident.', 'error');
   }
 }
 

@@ -152,3 +152,11 @@ async def prune_old_incidents(days: int = 30) -> int:
         )
         await db.commit()
         return cursor.rowcount  # type: ignore[return-value]
+
+
+async def delete_incident_by_id(incident_id: int) -> bool:
+    """Permanently delete an incident from the audit ledger."""
+    async with db_conn() as db:
+        cursor = await db.execute("DELETE FROM incidents WHERE id = ?", (incident_id,))
+        await db.commit()
+        return cursor.rowcount > 0

@@ -306,8 +306,8 @@ async def delete_probe(
     probe_id: int,
     session: Annotated[dict, Depends(get_current_session)],
 ) -> dict[str, Any]:
-    """Soft-delete an HTTP probe (sets enabled=0)."""
-    await ep_db.remove_endpoint(probe_id)
+    """Permanently delete an HTTP probe."""
+    await ep_db.delete_endpoint(probe_id)
     audit_logger.record_action(
         user_id="web-admin",
         action="remove_probe",
@@ -356,7 +356,10 @@ async def list_renewals_endpoint(
     status_filter: str | None = Query(default=None, alias="status"),
 ) -> list[dict[str, Any]]:
     """List registered renewals and client billing reminders."""
-    return await ren_db.list_renewals(status=status_filter)
+    renewals = await ren_db.list_renewals(status=status_filter)
+    if status_filter is None:
+        return [r for r in renewals if r.get("status") != "cancelled"]
+    return renewals
 
 
 @router.post("/renewals", dependencies=[Depends(verify_csrf)])
@@ -473,6 +476,24 @@ async def resolve_incident_endpoint(
         status="SUCCESS",
     )
     return {"success": True, "message": f"Incident #{incident_id} marked as resolved."}
+
+
+@router.delete("/incidents/{incident_id}", dependencies=[Depends(verify_csrf)])
+async def delete_incident_endpoint(
+    incident_id: int,
+    session: Annotated[dict, Depends(get_current_session)],
+) -> dict[str, Any]:
+    """Delete an incident from the audit ledger."""
+    deleted = await inc_db.delete_incident_by_id(incident_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    audit_logger.record_action(
+        user_id="web-admin",
+        action="delete_incident",
+        target=str(incident_id),
+        status="SUCCESS",
+    )
+    return {"success": True, "message": f"Incident #{incident_id} deleted."}
 
 
 @router.put("/renewals/{renewal_id}", dependencies=[Depends(verify_csrf)])
